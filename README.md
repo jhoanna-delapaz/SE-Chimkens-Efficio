@@ -16,37 +16,44 @@ This diagram shows the major components and how data flows between them.
 ```mermaid
 graph TD
     %% Styling
+    classDef layer fill:#f9f9f9,stroke:#333,stroke-width:2px;
     classDef component fill:#fff,stroke:#666,stroke-width:1px;
-    classDef user fill:#e1f5fe,stroke:#01579b,stroke-width:2px;
 
-    User((User)):::user
+    User((User))
 
-    subgraph Presentation ["Presentation Layer (GUI)"]
-        UI["MainWindow"]:::component
-        Dash["Dashboard View"]:::component
-    end
+    subgraph "Application Architecture"
+        direction TB
+        
+        subgraph Presentation ["Presentation Layer (GUI)"]
+            UI["MainWindow"]:::component
+            Dash["Dashboard View"]:::component
+        end
 
-    subgraph Logic ["Business Logic Layer"]
-        TM["Task Manager"]:::component
-        Analytics["Analytics Engine"]:::component
-    end
+        subgraph Logic ["Business Logic Layer"]
+            TM["Task Manager<br/>(Core Logic)"]:::component
+            Analytics["Analytics Engine<br/>(Stats Processing)"]:::component
+        end
 
-    subgraph Data ["Data Persistence Layer"]
-        Repo["Data Handler"]:::component
-        DB[("SQLite Database")]:::component
+        subgraph Data ["Data Persistence Layer"]
+            Repo["Data Handler<br/>(DB Access)"]:::component
+            DB[("SQLite Database<br/>(Local File)")]:::component
+        end
     end
 
     %% Key Interactions
     User -->|Interacts| UI
     
-    UI <-->|Commands| TM
-    Dash <-->|Reports| Analytics
+    UI <-->|Commands & Updates| TM
+    Dash <-->|Requests Reports| Analytics
     
-    TM <-->|Tasks| Repo
-    Analytics <-->|Stats| Repo
+    TM <-->|Read/Write Tasks| Repo
+    Analytics <-->|Read Statistics| Repo
     
-    Repo <-->|SQL| DB
+    Repo <-->|SQL Queries| DB
+
+    class Presentation,Logic,Data layer;
 ```
+
 
 
 ### 3. Design Principles Applied
