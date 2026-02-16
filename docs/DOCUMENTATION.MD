@@ -2,4 +2,4 @@
 | Question  | Answer |
 | :---: | :--- |
 | What was tested? | asd |
-| What passed/failed? | asd | |
+| What passed/failed? | asd |
