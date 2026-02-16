@@ -1,5 +1,6 @@
-| ## QA Test - Austria |
-| :---: | :---: |
+
+| ## QA Test - Austria |  |
+| :---: | :--- |
 | Question  | Answer |
-| What was tested? |  |
-| What passed/failed? |  |
+| What was tested? | asd |
+| What passed/failed? | asd |
