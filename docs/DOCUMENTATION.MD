@@ -1,6 +1,5 @@
-## QA Test - Austria
-<ul>
-    <li>What was tested?</li>
-    <li>What passed/failed?</li>
-</ul>
-
+| ## QA Test - Austria |
+| :---: | :---: |
+| Question  | Answer |
+| What was tested? |  |
+| What passed/failed? |  |
