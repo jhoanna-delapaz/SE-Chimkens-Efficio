@@ -17,13 +17,11 @@
 ## Sprint Summary (Short Reflection)
 <ul>
 <li>Submit a short group summary (1–2 paragraphs):</li>
-<li>
 <ol>
 <li>What features were completed in Sprint 1?</li>
 <li>What challenges did the team encounter?</li>
 <li>What will the team improve in the next sprint?</li>
 </ol>
-</li>
 </ul>
 
 
