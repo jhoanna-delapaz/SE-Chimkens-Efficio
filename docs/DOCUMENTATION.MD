@@ -6,13 +6,15 @@
 | What was tested? | (answer) |
 | What passed/failed? | (answer) |
 
+---
+
 ## QA DB initialization - Austria
 | Question  | Answer |
 | :---: | :--- |
-| What was tested? | Database initialization |
-| What passed/failed? | it run smoothly |
+| What was tested? | Database initialization, Main Window |
+| What passed/failed? | It runs smoothly |
 
-
+---
 
 ## Sprint Summary (Short Reflection)
 <ul>
@@ -23,7 +25,6 @@
 <li>What will the team improve in the next sprint?</li>
 </ol>
 </ul>
-
 
 
 ## Answer:
