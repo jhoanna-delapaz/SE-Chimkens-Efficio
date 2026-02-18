@@ -24,3 +24,10 @@ class TaskManager:
             # simple mapping, assumes order
             tasks.append(Task(id=row[0], title=row[1], description=row[2], status=row[3], created_at=row[4], due_date=row[5], priority=row[6]))
         return tasks
+
+    def delete_task(self, task_id: int):
+        """Delete a task by task_id"""
+        sql = 'DELETE FROM tasks WHERE id=?'
+        cur = self.conn.cursor()
+        cur.execute(sql, (task_id,))
+        self.conn.commit()
