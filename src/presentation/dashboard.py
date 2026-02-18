@@ -2,7 +2,7 @@
 import os
 from datetime import datetime
 from PySide6.QtWidgets import (QVBoxLayout, QWidget, QPushButton, QListWidget, 
-                             QListWidgetItem, QHBoxLayout, QLabel)
+                             QListWidgetItem, QHBoxLayout, QLabel, QMenu, QMessageBox)
 from PySide6.QtCore import Qt
 
 from business.task_manager import TaskManager
@@ -12,6 +12,7 @@ from presentation.add_task_dialog import AddTaskDialog
 class DashboardInterface(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent=parent)
+        self.setObjectName("DashboardInterface")
         
         # Initialize Task Manager
         db_path = os.path.join(os.getcwd(), "src", "data", "efficio.db")
@@ -41,6 +42,7 @@ class DashboardInterface(QWidget):
         # Task List
         layout.addWidget(QLabel("Your Tasks:"))
         self.task_list = QListWidget()
+        self.task_list.itemChanged.connect(self.on_item_changed)
         layout.addWidget(self.task_list)
 
         # Enable Right-Click Context Menu
@@ -48,14 +50,54 @@ class DashboardInterface(QWidget):
         self.task_list.customContextMenuRequested.connect(self.show_context_menu)
 
     def load_tasks(self):
+        # Disconnect momentarily to avoid triggering the signal while loading
+        try:
+            self.task_list.itemChanged.disconnect(self.on_item_changed)
+        except:
+            pass # Pending exception if not connected yet
+
         self.task_list.clear()
         tasks = self.task_manager.get_all_tasks()
+        
         for task in tasks:
             item_text = f"[{task.priority}] {task.title} - {task.status} (Due: {task.due_date})"
             item = QListWidgetItem(item_text)
-            # Store the ID in the item so we can retrieve it later
             item.setData(Qt.ItemDataRole.UserRole, task.id)
+            
+            # Add Checkbox
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            
+            if task.status == "Completed":
+                item.setCheckState(Qt.CheckState.Checked)
+                font = item.font()
+                font.setStrikeOut(True)
+                item.setFont(font)
+            else:
+                item.setCheckState(Qt.CheckState.Unchecked)
+                
             self.task_list.addItem(item)
+
+        # Reconnect signal
+        self.task_list.itemChanged.connect(self.on_item_changed)
+
+    def on_item_changed(self, item):
+        task_id = item.data(Qt.ItemDataRole.UserRole)
+        if not task_id:
+            return
+            
+        if item.checkState() == Qt.CheckState.Checked:
+            new_status = "Completed"
+            font = item.font()
+            font.setStrikeOut(True)
+            item.setFont(font)
+        else:
+            new_status = "Pending"
+            font = item.font()
+            font.setStrikeOut(False)
+            item.setFont(font)
+            
+        # Update DB
+        self.task_manager.update_task_status(task_id, new_status)
 
     def show_add_task_dialog(self):
         dialog = AddTaskDialog(self)
@@ -75,32 +117,53 @@ class DashboardInterface(QWidget):
             
             # Save to DB
             self.task_manager.add_task(new_task)
-            
-            # Refresh List
             self.load_tasks()
-            
+
     def show_context_menu(self, pos):
-        from PySide6.QtWidgets import QMenu
-        
         item = self.task_list.itemAt(pos)
         if item:
             menu = QMenu(self)
+            edit_action = menu.addAction("Edit Task")
             delete_action = menu.addAction("Delete Task")
+            
             action = menu.exec(self.task_list.mapToGlobal(pos))
             
             if action == delete_action:
                 self.delete_current_task(item)
+            elif action == edit_action:
+                self.edit_current_task(item)
 
     def delete_current_task(self, item):
-        # Retrieve the ID we stored earlier
         task_id = item.data(Qt.ItemDataRole.UserRole)
-        
         if task_id:
-            from PySide6.QtWidgets import QMessageBox
             confirm = QMessageBox.question(self, "Confirm Delete", 
                                          "Are you sure you want to delete this task?",
                                          QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
             
             if confirm == QMessageBox.StandardButton.Yes:
                 self.task_manager.delete_task(task_id)
-                self.load_tasks() # Refresh list
+                self.load_tasks()
+
+    def edit_current_task(self, item):
+        task_id = item.data(Qt.ItemDataRole.UserRole)
+        if task_id:
+            # Fetch existing task data
+            task = self.task_manager.get_task_by_id(task_id)
+            if task:
+                dialog = AddTaskDialog(self, task=task)
+                if dialog.exec():
+                    data = dialog.get_data()
+                    
+                    # Update Task Object
+                    updated_task = Task(
+                        id=task_id,
+                        title=data['title'],
+                        description=data['description'],
+                        status=data['status'], # Keep existing status or update if dialog allows
+                        created_at=task.created_at,
+                        due_date=data['due_date'],
+                        priority=data['priority']
+                    )
+                    
+                    self.task_manager.update_task(updated_task)
+                    self.load_tasks()
