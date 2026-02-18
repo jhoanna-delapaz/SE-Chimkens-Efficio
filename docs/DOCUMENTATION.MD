@@ -17,10 +17,11 @@
 ## Part 5: Sprint Summary (Short Reflection)
 
 Submit a short group summary (1–2 paragraphs):
-
-1. What features were completed in Sprint 1?  
-2. What challenges did the team encounter?  
-3. What will the team improve in the next sprint?
+<ol>
+<li>What features were completed in Sprint 1?</li>
+<li>What challenges did the team encounter?</li>
+<li>What will the team improve in the next sprint?</li>
+</ol>
 
 ## Answer:
 In Sprint 1, our team completed the basic setup of the task manager application. We created the main system files and database, and started working on important features like adding a new task, viewing tasks on the dashboard, and adding a checkbox for tasks. These features helped us build the foundation of the system so we can continue improving it in the next sprint.
