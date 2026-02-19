@@ -1,10 +1,10 @@
 # QA RULE
 
-## QA (name of task) - (QA Surname)
+## QA (name of task) - Villafranca
 | Question  | Answer |
 | :---: | :--- |
-| What was tested? | (answer) |
-| What passed/failed? | (answer) |
+| What was tested? | Functional Features, System Component, & Features Tested or Test Coverage |
+| What passed/failed? | No Major Failures detected but needs a bit of tweaking such as adding a reminder feature on functional features|
 
 ---
 
