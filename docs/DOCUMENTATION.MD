@@ -32,6 +32,7 @@ In Sprint 1, our team completed the basic setup of the task manager application.
 
 One challenge we experienced was making sure the backend and frontend parts worked together properly, especially when connecting the program to the database. We also had to adjust to working as a team and managing our tasks. In the next sprint, we plan to improve our teamwork, finish more features, and test the system more carefully to avoid errors.
 
+---
 
 # Secure Coding Awareness
 
