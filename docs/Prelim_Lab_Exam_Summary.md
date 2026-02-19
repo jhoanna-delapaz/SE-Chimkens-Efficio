@@ -23,6 +23,10 @@ The primary deliverable for Sprint 1 is a robust, responsive **Task Management S
 -   **Commits:** Made regularly with meaningful messages describing the changes.
 -   **Branching:** Utilized when implementing new features or fixes to keep the main branch stable.
 -   **Repository:** Reflects continuous progress and organized updates.
+  <img width="1201" height="809" alt="image" src="https://github.com/user-attachments/assets/0e91192d-467c-4b08-9789-3ad2c8946aa5" />
+  <img width="1167" height="811" alt="image" src="https://github.com/user-attachments/assets/826c7d2a-8fcd-460c-bc84-1d0c60492159" />
+
+  
 
 ## 4. Security Considerations
 
@@ -38,8 +42,14 @@ The application interacts with a local SQLite database to perform Create, Read, 
 
 **Code Evidence (`src/business/task_manager.py`):**
 ```python
-# [Placeholder for actual code snippet based on user description]
-# cursor.execute("INSERT INTO tasks (title, description) VALUES (?, ?)", (title, description))
+# SECURE: Using '?' placeholder
+sql = ''' INSERT INTO tasks(title, description, status, created_at, due_date, priority)
+          VALUES(?,?,?,?,?,?) '''
+cur.execute(sql, (task.title, task.description, ...))
+
+# VULNERABLE (Avoided):
+# sql = f"INSERT INTO tasks... VALUES('{task.title}', ...)"
+
 ```
 By using `?`, the database driver treats the inputs strictly as data, not executable code, effectively neutralizing SQL injection attacks.
 
@@ -57,10 +67,17 @@ Allowing invalid, empty, or extremely long inputs can lead to application instab
 
 **Code Evidence (`src/presentation/add_task_dialog.py`):**
 ```python
-# [Placeholder for actual code snippet based on user description]
-# title = self.title_input.text().strip()
-# if not title:
-#     # handle error
+def validate_and_accept(self):
+    # Sanitize: Strip leading/trailing whitespace
+    title = self.title_input.text().strip()
+    
+    # Validate: Ensure Title is not empty
+    if not title:
+        QMessageBox.warning(self, "Validation Error", "Title is required!")
+        return  # Block submission
+    
+    self.accept()
+
 ```
 
 **Sanitization:** `.strip()` removes accidental whitespace, preventing "blank" tasks that look empty but technically contain spaces.
@@ -92,3 +109,4 @@ The codebase is cleanly separated into **Presentation (UI)**, **Business Logic**
 -   Emperador, Radge Michael A.
 -   Mane, Jerstin M.
 -   Villafranca, Richardson M.
+
