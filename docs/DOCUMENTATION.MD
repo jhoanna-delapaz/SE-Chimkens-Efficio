@@ -1,6 +1,6 @@
 # QA RULE
 
-## QA (name of task) - Villafranca
+## QA Feature Implementation - Villafranca
 | Question  | Answer |
 | :---: | :--- |
 | What was tested? | Functional Features, System Component, & Features Tested or Test Coverage |
