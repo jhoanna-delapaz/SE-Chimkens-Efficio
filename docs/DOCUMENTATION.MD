@@ -16,6 +16,14 @@
 
 ---
 
+## QA Feature Implementation - Villafranca
+| Question  | Answer |
+| :---: | :--- |
+| What was tested? | Functional Features, System Component, & Features Tested or Test Coverage |
+| What passed/failed? | No Major Failures detected but needs a bit of tweaking such as adding a reminder feature on functional features|
+
+---
+
 ## Sprint Summary (Short Reflection)
 <ul>
 <li>Submit a short group summary (1–2 paragraphs):</li>
