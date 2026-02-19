@@ -31,3 +31,33 @@ class TaskManager:
         cur = self.conn.cursor()
         cur.execute(sql, (task_id,))
         self.conn.commit()
+
+    def get_task_by_id(self, task_id):
+        sql = "SELECT * FROM tasks WHERE id=?"
+        cur = self.conn.cursor()
+        cur.execute(sql, (task_id,))
+        row = cur.fetchone()
+        if row:
+            return Task(id=row[0], title=row[1], description=row[2], status=row[3], created_at=row[4], due_date=row[5], priority=row[6])
+        return None
+
+    def update_task_status(self, task_id, status):
+        sql = ''' UPDATE tasks
+                  SET status = ?
+                  WHERE id = ?'''
+        cur = self.conn.cursor()
+        cur.execute(sql, (status, task_id))
+        self.conn.commit()
+
+    def update_task(self, task):
+        sql = ''' UPDATE tasks
+                  SET title = ?,
+                      description = ?,
+                      status = ?,
+                      due_date = ?,
+                      priority = ?
+                  WHERE id = ?'''
+        cur = self.conn.cursor()
+        cur.execute(sql, (task.title, task.description, task.status, task.due_date, task.priority, task.id))
+        self.conn.commit()
+

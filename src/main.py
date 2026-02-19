@@ -13,6 +13,7 @@ from presentation.dashboard import DashboardInterface
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
+        self.db_file = db_file
         self.setWindowTitle("EFFICIO - PySide6")
         self.resize(1000, 700)
         

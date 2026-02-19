@@ -8,6 +8,14 @@
 
 ---
 
+## QA Feature Implementation - Villafranca
+| Question  | Answer |
+| :---: | :--- |
+| What was tested? | Functional Features, System Component, & Features Tested or Test Coverage |
+| What passed/failed? | No Major Failures detected but needs a bit of tweaking such as adding a reminder feature on functional features|
+
+---
+
 ## QA DB initialization - Austria
 | Question  | Answer |
 | :---: | :--- |
