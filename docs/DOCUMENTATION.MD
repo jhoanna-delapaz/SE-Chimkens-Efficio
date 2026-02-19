@@ -1,5 +1,13 @@
 # QA RULE
 
+## QA (name of task) - (QA Surname)
+| Question  | Answer |
+| :---: | :--- |
+| What was tested? | (answer) |
+| What passed/failed? | (answer) |
+
+---
+
 ## QA Feature Implementation - Villafranca
 | Question  | Answer |
 | :---: | :--- |
