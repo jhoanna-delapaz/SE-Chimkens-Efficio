@@ -60,3 +60,32 @@ cur.execute(sql, (task.title, task.description, ...))
 # sql = f"INSERT INTO tasks... VALUES('{task.title}', ...)"
 ```
 By using `?`, the database driver treats the inputs strictly as data, not executable code, effectively neutralizing SQL injection attacks.
+
+---
+
+## 2. Input Validation & Data Integrity
+
+### **Risk Identification**
+**Where Risk Exists:** `src/presentation/add_task_dialog.py` (User Interface Layer)
+
+Allowing invalid, empty, or extremely long inputs can lead to application instability, database errors (constraints violations), or confusing user experiences. While less severe than code injection in a desktop app, malformed data (like an empty title or whitespace-only strings) compromises the integrity of the data store and the reliability of the application's logic.
+
+### **Implementation & Mitigation**
+**How We Addressed It:**
+We implemented **Input Validation** at the interface level before data is ever sent to the business logic or database.
+
+**Code Evidence (`src/presentation/add_task_dialog.py`):**
+```python
+def validate_and_accept(self):
+    # Sanitize: Strip leading/trailing whitespace
+    title = self.title_input.text().strip()
+    
+    # Validate: Ensure Title is not empty
+    if not title:
+        QMessageBox.warning(self, "Validation Error", "Title is required!")
+        return  # Block submission
+    
+    self.accept()
+```
+*   **Sanitization:** `.strip()` removes accidental whitespace, preventing "blank" tasks that look empty but technically contain spaces.
+*   **Validation:** Checking `if not title` ensures that every task has a valid identifier, preventing the creation of "ghost" tasks in the database.
