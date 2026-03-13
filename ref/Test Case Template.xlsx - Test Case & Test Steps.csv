@@ -1,0 +1,13 @@
+Project Name:,,,,,,,,
+Members,PM,,,,,,,
+,QA,,,,,,,
+,DEV,,,,,,,
+,RA,,,,,,,
+TEST CASE,,,,,,,,
+Test Cycle:,Cycle 1/2/3 or Clean Pass,,,,,,,
+,,,,,,,,
+,,,,,,,,
+Requirement Reference,Test Case No.,Test Case Description,Precondition,Test Objective,Test Steps,Expected Results,Status,Date Tested
+REQ-CMM-001,TC-001,Verify that an authorized user can access the Customer Maintenance Module, The user has an active account with administrative or customer service permissions and is logged into the main system dashboard.,To ensure the system correctly routes the user to the Customer Maintenance interface upon request.,1. Navigate to the main navigation menu on the left side of the screen.,"The Customer Maintenance Module dashboard loads within 3 seconds, displaying the default list of active customers.",Passed,"March 7, 2026"
+,,,,,"2. Click on the ""Modules"" dropdown.",,,
+,,,,,"3. Select ""Access Customer Maintenance Module"" from the list",,,

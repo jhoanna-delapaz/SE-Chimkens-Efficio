@@ -22,14 +22,23 @@ class AddTaskDialog(QDialog):
         layout.addWidget(QLabel("Description:"))
         self.desc_input = QTextEdit()
         self.desc_input.setMaximumHeight(100)
-        if task: self.desc_input.setText(task.description)
+        if task:
+            self.desc_input.setText(task.description or "")
         layout.addWidget(self.desc_input)
 
         # Due Date
         layout.addWidget(QLabel("Due Date:"))
         self.date_input = QDateEdit()
         if task and task.due_date:
-            self.date_input.setDate(QDate.fromString(task.due_date, Qt.DateFormat.ISODate))
+            due_str = str(task.due_date).strip()
+            if due_str:
+                parsed = QDate.fromString(due_str, Qt.DateFormat.ISODate)
+                if parsed.isValid():
+                    self.date_input.setDate(parsed)
+                else:
+                    self.date_input.setDate(QDate.currentDate())
+            else:
+                self.date_input.setDate(QDate.currentDate())
         else:
             self.date_input.setDate(QDate.currentDate())
         self.date_input.setCalendarPopup(True)

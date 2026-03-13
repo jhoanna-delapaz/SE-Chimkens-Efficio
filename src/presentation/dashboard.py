@@ -8,15 +8,25 @@ from PySide6.QtCore import Qt
 from business.task_manager import TaskManager
 from data.models import Task
 from presentation.add_task_dialog import AddTaskDialog
+try:
+    from config import get_default_db_path
+except ImportError:
+    get_default_db_path = None
 
 class DashboardInterface(QWidget):
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, db_file=None):
         super().__init__(parent=parent)
         self.setObjectName("DashboardInterface")
         
-        # Initialize Task Manager
-        db_path = os.path.join(os.getcwd(), "src", "data", "efficio.db")
-        self.task_manager = TaskManager(db_path)
+        if db_file is None and parent is not None:
+            db_file = getattr(parent, "db_file", None)
+        if db_file is None and get_default_db_path:
+            db_file = get_default_db_path()
+        if db_file is None:
+            db_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data", "efficio.db")
+
+        self.db_file = db_file
+        self.task_manager = TaskManager(self.db_file)
 
         self.setup_ui()
         self.load_tasks()
@@ -53,14 +63,15 @@ class DashboardInterface(QWidget):
         # Disconnect momentarily to avoid triggering the signal while loading
         try:
             self.task_list.itemChanged.disconnect(self.on_item_changed)
-        except:
-            pass # Pending exception if not connected yet
+        except TypeError:
+            pass  # Signal not connected yet (first load)
 
         self.task_list.clear()
         tasks = self.task_manager.get_all_tasks()
         
         for task in tasks:
-            item_text = f"[{task.priority}] {task.title} - {task.status} (Due: {task.due_date})"
+            due_display = task.due_date if task.due_date else ""
+            item_text = f"[{task.priority}] {task.title} - {task.status} (Due: {due_display})"
             item = QListWidgetItem(item_text)
             item.setData(Qt.ItemDataRole.UserRole, task.id)
             

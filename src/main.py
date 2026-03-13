@@ -2,6 +2,9 @@
 import sys
 import os
 from PySide6.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget, QHBoxLayout, QPushButton, QLabel
+from config import get_default_db_path
+from data.DataBaseHandler import init_db
+from presentation.dashboard import DashboardInterface
 
 # Setup Path
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -11,8 +14,13 @@ from data.DataBaseHandler import init_db
 from presentation.dashboard import DashboardInterface
 
 class MainWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self, db_file=None):
         super().__init__()
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+
+        if db_file is None:
+            db_file = get_default_db_path()
+
         self.db_file = db_file
         self.setWindowTitle("EFFICIO - PySide6")
         self.resize(1000, 700)
@@ -59,14 +67,14 @@ class MainWindow(QMainWindow):
         content_layout = QVBoxLayout(self.content_area)
         
         # Initialize Dashboard
-        self.dashboard = DashboardInterface(self)
+        self.dashboard = DashboardInterface(self, self.db_file)
         content_layout.addWidget(self.dashboard)
         
         main_layout.addWidget(self.content_area)
 
 if __name__ == "__main__":
     # Initialize DB
-    db_file = os.path.join(current_dir, "data", "efficio.db")
+    db_file = get_default_db_path()
     init_db(db_file)
 
     # Run App

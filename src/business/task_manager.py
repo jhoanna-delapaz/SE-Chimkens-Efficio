@@ -1,63 +1,34 @@
-
+"""
+Business logic for tasks. Delegates all DB access to DataHandler.
+Keeps core logic DB-agnostic for easier testing and future upgrades.
+"""
 from data.models import Task
-from data.DataBaseHandler import create_connection
+from data.DataBaseHandler import DataHandler
+
 
 class TaskManager:
-    def __init__(self, db_file):
+    def __init__(self, db_file: str):
         self.db_file = db_file
-        self.conn = create_connection(self.db_file)
+        self._data_handler = DataHandler(db_file)
 
-    def add_task(self, task: Task):
-        sql = ''' INSERT INTO tasks(title, description, status, created_at, due_date, priority)
-                  VALUES(?,?,?,?,?,?) '''
-        cur = self.conn.cursor()
-        cur.execute(sql, (task.title, task.description, task.status, task.created_at, task.due_date, task.priority))
-        self.conn.commit()
-        return cur.lastrowid
+    def close(self) -> None:
+        """Close DB connection. Call on shutdown to avoid file locks."""
+        self._data_handler.close()
 
-    def get_all_tasks(self):
-        cur = self.conn.cursor()
-        cur.execute("SELECT * FROM tasks")
-        rows = cur.fetchall()
-        tasks = []
-        for row in rows:
-            # simple mapping, assumes order
-            tasks.append(Task(id=row[0], title=row[1], description=row[2], status=row[3], created_at=row[4], due_date=row[5], priority=row[6]))
-        return tasks
+    def add_task(self, task: Task) -> int:
+        return self._data_handler.add_task(task)
 
-    def delete_task(self, task_id: int):
-        """Delete a task by task_id"""
-        sql = 'DELETE FROM tasks WHERE id=?'
-        cur = self.conn.cursor()
-        cur.execute(sql, (task_id,))
-        self.conn.commit()
+    def get_all_tasks(self) -> list:
+        return self._data_handler.get_all_tasks()
 
-    def get_task_by_id(self, task_id):
-        sql = "SELECT * FROM tasks WHERE id=?"
-        cur = self.conn.cursor()
-        cur.execute(sql, (task_id,))
-        row = cur.fetchone()
-        if row:
-            return Task(id=row[0], title=row[1], description=row[2], status=row[3], created_at=row[4], due_date=row[5], priority=row[6])
-        return None
+    def get_task_by_id(self, task_id: int):
+        return self._data_handler.get_task_by_id(task_id)
 
-    def update_task_status(self, task_id, status):
-        sql = ''' UPDATE tasks
-                  SET status = ?
-                  WHERE id = ?'''
-        cur = self.conn.cursor()
-        cur.execute(sql, (status, task_id))
-        self.conn.commit()
+    def delete_task(self, task_id: int) -> None:
+        self._data_handler.delete_task(task_id)
 
-    def update_task(self, task):
-        sql = ''' UPDATE tasks
-                  SET title = ?,
-                      description = ?,
-                      status = ?,
-                      due_date = ?,
-                      priority = ?
-                  WHERE id = ?'''
-        cur = self.conn.cursor()
-        cur.execute(sql, (task.title, task.description, task.status, task.due_date, task.priority, task.id))
-        self.conn.commit()
+    def update_task_status(self, task_id: int, status: str) -> None:
+        self._data_handler.update_task_status(task_id, status)
 
+    def update_task(self, task: Task) -> None:
+        self._data_handler.update_task(task)
