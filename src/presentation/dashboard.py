@@ -18,12 +18,21 @@ class DashboardInterface(QWidget):
         super().__init__(parent=parent)
         self.setObjectName("DashboardInterface")
         
+        # 1. First, check if a direct path was passed or parent has it
         if db_file is None and parent is not None:
             db_file = getattr(parent, "db_file", None)
-        if db_file is None and get_default_db_path:
-            db_file = get_default_db_path()
+            
+        # 2. If STILL None, calculate the absolute path robustly
         if db_file is None:
-            db_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data", "efficio.db")
+            # Get the path to the 'src' directory
+            src_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            data_dir = os.path.join(src_dir, "data")
+            
+            # CRITICAL FIX: Ensure the 'data' directory actually exists
+            if not os.path.exists(data_dir):
+                os.makedirs(data_dir)
+                
+            db_file = os.path.join(data_dir, "efficio.db")
 
         self.db_file = db_file
         self.task_manager = TaskManager(self.db_file)
