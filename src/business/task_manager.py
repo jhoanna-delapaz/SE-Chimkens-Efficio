@@ -60,3 +60,25 @@ class TaskManager:
             self._data_handler.update_task(task)
         except sqlite3.Error as e:
             print(f"Database Error on Update: {e}")
+
+    def get_deleted_tasks(self) -> list:
+        """Fetches all tasks from the Trash securely."""
+        try:
+            return self._data_handler.get_deleted_tasks()
+        except sqlite3.Error as e:
+            print(f"Database Error on Get Deleted: {e}")
+            return []
+
+    def restore_task(self, task_id: int) -> None:
+        """Restores a task from the Trash securely."""
+        try:
+            self._data_handler.restore_task(task_id)
+        except sqlite3.Error as e:
+            print(f"Database Error on Restore: {e}")
+
+    def permanently_delete_task(self, task_id: int) -> None:
+        """Permanently obliterates a task from storage."""
+        try:
+            self._data_handler.permanently_delete_task(task_id)
+        except sqlite3.Error as e:
+            print(f"Database Error on Permanent Delete: {e}")

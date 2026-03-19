@@ -40,6 +40,7 @@ def _row_to_task(row) -> Task:
         created_at=row[4],
         due_date=row[5] or "",
         priority=row[6],
+        is_deleted=row[7] if len(row) > 7 else 0
     )
 
 
@@ -57,6 +58,10 @@ def create_table(conn, create_table_sql):
 
 
 def init_db(db_file):
+    """
+    Initializes the database and safely auto-migrates old schemas
+    to prevent application crashes on legacy databases.
+    """
     database = db_file
 
     sql_create_tasks_table = """ CREATE TABLE IF NOT EXISTS tasks (
@@ -80,10 +85,21 @@ def init_db(db_file):
 
     # create tables
     if conn is not None:
-        create_table(conn, sql_create_tasks_table)
-        create_table(conn, sql_create_user_profile_table)
-        conn.close()
-        print("Database initialized successfully.")
+        try:
+            create_table(conn, sql_create_tasks_table)
+            create_table(conn, sql_create_user_profile_table)
+
+            # ISO 25010 Reliability: Safely attempt to migrate older databases
+            try:
+                cur = conn.cursor()
+                cur.execute("ALTER TABLE tasks ADD COLUMN is_deleted integer DEFAULT 0")
+                conn.commit()
+                print("Database successfully migrated to Sprint 2 SCHEMA (Added is_deleted).")
+            except Exception:
+                pass
+
+        finally:
+            conn.close()
     else:
         print("Error! cannot create the database connection.")
 
@@ -107,24 +123,37 @@ class DataHandler:
             self._conn = None
 
     def add_task(self, task: Task) -> int:
-        sql = """INSERT INTO tasks(title, description, status, created_at, due_date, priority)
-                 VALUES(?,?,?,?,?,?)"""
         cur = self._conn.cursor()
-        cur.execute(sql, (
-            task.title,
-            task.description or "",
-            task.status,
-            _serialize_for_sqlite(task.created_at),
-            _serialize_for_sqlite(task.due_date),
-            task.priority,
-        ))
+        cur.execute(
+            """INSERT INTO tasks
+               (title, description, status, created_at, due_date, priority, is_deleted)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (
+                task.title,
+                task.description or "",
+                task.status,
+                _serialize_for_sqlite(task.created_at),
+                _serialize_for_sqlite(task.due_date),
+                task.priority,
+                0  # Default to active when created
+            ),
+        )
         self._conn.commit()
         return cur.lastrowid
 
     def get_all_tasks(self) -> list:
+        """Fetches only ACTIVE tasks (is_deleted = 0) from the database."""
         cur = self._conn.cursor()
-        cur.execute("SELECT * FROM tasks")
-        return [_row_to_task(row) for row in cur.fetchall()]
+        cur.execute("SELECT * FROM tasks WHERE is_deleted = 0 OR is_deleted IS NULL")
+        rows = cur.fetchall()
+        return [_row_to_task(r) for r in rows]
+
+    def get_deleted_tasks(self) -> list:
+        """Fetches only tasks located in the Trash (is_deleted = 1)."""
+        cur = self._conn.cursor()
+        cur.execute("SELECT * FROM tasks WHERE is_deleted = 1")
+        rows = cur.fetchall()
+        return [_row_to_task(r) for r in rows]
 
     def get_task_by_id(self, task_id: int) -> Optional[Task]:
         cur = self._conn.cursor()
@@ -133,8 +162,9 @@ class DataHandler:
         return _row_to_task(row) if row else None
 
     def delete_task(self, task_id: int) -> None:
+        """Soft-deletes a task by moving it to the Trash."""
         cur = self._conn.cursor()
-        cur.execute("DELETE FROM tasks WHERE id=?", (task_id,))
+        cur.execute("UPDATE tasks SET is_deleted = 1 WHERE id=?", (task_id,))
         self._conn.commit()
 
     def update_task_status(self, task_id: int, status: str) -> None:
@@ -156,4 +186,16 @@ class DataHandler:
                 task.id,
             ),
         )
+        self._conn.commit()
+
+    def restore_task(self, task_id: int) -> None:
+        """Restores a task from the Trash back to the main dashboard."""
+        cur = self._conn.cursor()
+        cur.execute("UPDATE tasks SET is_deleted = 0 WHERE id=?", (task_id,))
+        self._conn.commit()
+
+    def permanently_delete_task(self, task_id: int) -> None:
+        """Physically removes the task from system storage permanently."""
+        cur = self._conn.cursor()
+        cur.execute("DELETE FROM tasks WHERE id=?", (task_id,))
         self._conn.commit()

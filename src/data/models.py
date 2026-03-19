@@ -13,6 +13,7 @@ class Task:
     created_at: datetime
     due_date: Optional[datetime]
     priority: str
+    is_deleted: int = 0
 
 
 @dataclass
