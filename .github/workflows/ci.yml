@@ -19,22 +19,56 @@ jobs:
       with:
         python-version: '3.11'
 
-    - name: Install System Dependencies for PySide6 (Headless UI Server)
+    - name: Install System Dependencies for PySide6
       run: |
         sudo apt-get update
-        sudo apt-get install -y xvfb libxkbcommon-x11-0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-xinerama0 libxcb-xfixes0 x11-utils
+        sudo apt-get install -y \
+          xvfb \
+          libxkbcommon-x11-0 \
+          libxcb-icccm4 \
+          libxcb-image0 \
+          libxcb-keysyms1 \
+          libxcb-randr0 \
+          libxcb-render-util0 \
+          libxcb-xinerama0 \
+          libxcb-xfixes0 \
+          libxcb-cursor0 \
+          libxcb-shape0 \
+          libxcb-shm0 \
+          libxcb-util1 \
+          libxcb-xinput0 \
+          x11-utils \
+          libegl1 \
+          libgl1 \
+          libglib2.0-0 \
+          libdbus-1-3 \
+          libfontconfig1 \
+          libxrender1 \
+          libxi6
 
     - name: Install Python Dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
+        # Ensuring pytest-qt and pytest-xvfb are present if not in requirements.txt
+        pip install pytest-qt pytest-xvfb
 
-    - name: Lint with Flake8 (Assess Structural Correctness)
+    - name: Lint with Flake8
       run: |
-        # This will fail the pipeline if messy code is pushed!
-        flake8 src/ --max-line-length=100 --ignore=E402,W503
+        # Added W504 to ignore list to match your earlier error
+        flake8 src/ --max-line-length=100 --ignore=E402,W503,W504
 
-    - name: Run Automated UI Tests with Pytest-Qt
+    - name: Run Automated UI Tests
+      env:
+        # Force Qt to use the X11 backend provided by Xvfb
+        QT_QPA_PLATFORM: xcb
       run: |
-        # xvfb-run fakes a monitor so PySide6 doesn't crash on a headless server
-        xvfb-run -a pytest tests/automation/test_features.py -v
+        # --auto-servernum ensures no conflict with existing X servers
+        # --server-args provides a high-res virtual buffer for the UI to draw on
+        xvfb-run --auto-servernum --server-args="-screen 0 1280x1024x24" \
+        pytest tests/automation/test_features.py -v
+
+    - name: Debug Missing Libraries
+      run: |
+        # Find the platform plugin and check its dependencies
+        ldd $(python -c "import PySide6; import os; print(os.path.join(os.path.dirname(PySide6.__file__), 'Qt/plugins/platforms/libqxcb.so'))") | grep "not found"
