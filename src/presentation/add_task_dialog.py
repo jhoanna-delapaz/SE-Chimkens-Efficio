@@ -1,21 +1,26 @@
 
-from PySide6.QtWidgets import (QDialog, QVBoxLayout, QLabel, QLineEdit, 
-                             QTextEdit, QComboBox, QDialogButtonBox, QDateEdit, QMessageBox)
+from PySide6.QtWidgets import (
+    QDialog, QVBoxLayout, QLabel, QLineEdit,
+    QTextEdit, QComboBox, QDialogButtonBox,
+    QDateEdit, QMessageBox
+)
 from PySide6.QtCore import QDate, Qt
+
 
 class AddTaskDialog(QDialog):
     def __init__(self, parent=None, task=None):
         super().__init__(parent)
         self.setWindowTitle("Edit Task" if task else "Add New Task")
         self.setMinimumWidth(400)
-        self.task = task 
+        self.task = task
 
         layout = QVBoxLayout(self)
 
         # Title
         layout.addWidget(QLabel("Title (Required):"))
         self.title_input = QLineEdit()
-        if task: self.title_input.setText(task.title)
+        if task:
+            self.title_input.setText(task.title)
         layout.addWidget(self.title_input)
 
         # Description
@@ -50,11 +55,15 @@ class AddTaskDialog(QDialog):
         self.priority_input.addItems(["Low", "Medium", "High", "Critical"])
         if task and task.priority:
             index = self.priority_input.findText(task.priority)
-            if index >= 0: self.priority_input.setCurrentIndex(index)
+            if index >= 0:
+                self.priority_input.setCurrentIndex(index)
         layout.addWidget(self.priority_input)
 
         # Buttons
-        self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        self.button_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel
+        )
         self.button_box.accepted.connect(self.validate_and_accept)
         self.button_box.rejected.connect(self.reject)
         layout.addWidget(self.button_box)
@@ -73,5 +82,5 @@ class AddTaskDialog(QDialog):
             "description": self.desc_input.toPlainText().strip(),
             "due_date": self.date_input.date().toString(Qt.DateFormat.ISODate),
             "priority": self.priority_input.currentText(),
-            "status": self.task.status if self.task else "Pending" 
+            "status": self.task.status if self.task else "Pending"
         }

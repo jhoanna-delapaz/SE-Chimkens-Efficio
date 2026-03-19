@@ -1,0 +1,40 @@
+name: Efficio CI/CD Pipeline
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install System Dependencies for PySide6 (Headless UI Server)
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y xvfb libxkbcommon-x11-0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-xinerama0 libxcb-xfixes0 x11-utils
+
+    - name: Install Python Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Lint with Flake8 (Assess Structural Correctness)
+      run: |
+        # This will fail the pipeline if messy code is pushed!
+        flake8 src/ --max-line-length=100 --ignore=E402,W503
+
+    - name: Run Automated UI Tests with Pytest-Qt
+      run: |
+        # xvfb-run fakes a monitor so PySide6 doesn't crash on a headless server
+        xvfb-run -a pytest tests/automation/test_features.py -v

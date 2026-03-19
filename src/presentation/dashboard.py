@@ -1,8 +1,9 @@
 
 import os
 from datetime import datetime
-from PySide6.QtWidgets import (QVBoxLayout, QWidget, QPushButton, QListWidget, 
-                             QListWidgetItem, QHBoxLayout, QLabel, QMenu, QMessageBox)
+from PySide6.QtWidgets import (QVBoxLayout, QWidget, QPushButton, QListWidget,
+                               QListWidgetItem, QHBoxLayout, QLabel, QMenu, QMessageBox
+                               )
 from PySide6.QtCore import Qt
 
 from business.task_manager import TaskManager
@@ -13,25 +14,26 @@ try:
 except ImportError:
     get_default_db_path = None
 
+
 class DashboardInterface(QWidget):
     def __init__(self, parent=None, db_file=None):
         super().__init__(parent=parent)
         self.setObjectName("DashboardInterface")
-        
+
         # 1. First, check if a direct path was passed or parent has it
         if db_file is None and parent is not None:
             db_file = getattr(parent, "db_file", None)
-            
+
         # 2. If STILL None, calculate the absolute path robustly
         if db_file is None:
             # Get the path to the 'src' directory
             src_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
             data_dir = os.path.join(src_dir, "data")
-            
+
             # CRITICAL FIX: Ensure the 'data' directory actually exists
             if not os.path.exists(data_dir):
                 os.makedirs(data_dir)
-                
+
             db_file = os.path.join(data_dir, "efficio.db")
 
         self.db_file = db_file
@@ -49,13 +51,13 @@ class DashboardInterface(QWidget):
         title.setStyleSheet("font-size: 24px; font-weight: bold; color: #333;")
         header_layout.addWidget(title)
         header_layout.addStretch(1)
-        
+
         # Add Task Button
         self.add_btn = QPushButton("+ New Task")
-        self.add_btn.setStyleSheet("background-color: #007bff; color: white; padding: 8px 16px; border-radius: 4px;")
+        self.add_btn.setStyleSheet("background-color: #007bff; color: white;"
+                                   "padding: 8px 16px; border-radius: 4px;")
         self.add_btn.clicked.connect(self.show_add_task_dialog)
         header_layout.addWidget(self.add_btn)
-        
         layout.addLayout(header_layout)
 
         # Task List
@@ -77,16 +79,16 @@ class DashboardInterface(QWidget):
 
         self.task_list.clear()
         tasks = self.task_manager.get_all_tasks()
-        
+
         for task in tasks:
             due_display = task.due_date if task.due_date else ""
             item_text = f"[{task.priority}] {task.title} - {task.status} (Due: {due_display})"
             item = QListWidgetItem(item_text)
             item.setData(Qt.ItemDataRole.UserRole, task.id)
-            
+
             # Add Checkbox
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-            
+
             if task.status == "Completed":
                 item.setCheckState(Qt.CheckState.Checked)
                 font = item.font()
@@ -94,7 +96,7 @@ class DashboardInterface(QWidget):
                 item.setFont(font)
             else:
                 item.setCheckState(Qt.CheckState.Unchecked)
-                
+
             self.task_list.addItem(item)
 
         # Reconnect signal
@@ -104,7 +106,7 @@ class DashboardInterface(QWidget):
         task_id = item.data(Qt.ItemDataRole.UserRole)
         if not task_id:
             return
-            
+
         if item.checkState() == Qt.CheckState.Checked:
             new_status = "Completed"
             font = item.font()
@@ -115,15 +117,19 @@ class DashboardInterface(QWidget):
             font = item.font()
             font.setStrikeOut(False)
             item.setFont(font)
-            
+
         # Update DB
         self.task_manager.update_task_status(task_id, new_status)
 
     def show_add_task_dialog(self):
+        """
+        Opens the dialog to create a new task. Provides a success notification
+        upon successfully saving the task to the database.
+        """
         dialog = AddTaskDialog(self)
         if dialog.exec():
             data = dialog.get_data()
-            
+
             # Create Task Object
             new_task = Task(
                 id=None,
@@ -134,10 +140,20 @@ class DashboardInterface(QWidget):
                 due_date=data['due_date'],
                 priority=data['priority']
             )
-            
-            # Save to DB
-            self.task_manager.add_task(new_task)
-            self.load_tasks()
+
+            # Save to DB safely
+            result_id = self.task_manager.add_task(new_task)
+
+            if result_id != -1:
+                # ISO 25010 Usability: Visual confirmation of success
+                QMessageBox.information(
+                    self, "Success", f"Task '{new_task.title}' was successfully created!"
+                )
+                self.load_tasks()
+            else:
+                QMessageBox.critical(
+                    self, "Error", "A database error occurred while saving the task."
+                )
 
     def show_context_menu(self, pos):
         item = self.task_list.itemAt(pos)
@@ -145,9 +161,9 @@ class DashboardInterface(QWidget):
             menu = QMenu(self)
             edit_action = menu.addAction("Edit Task")
             delete_action = menu.addAction("Delete Task")
-            
+
             action = menu.exec(self.task_list.mapToGlobal(pos))
-            
+
             if action == delete_action:
                 self.delete_current_task(item)
             elif action == edit_action:
@@ -156,10 +172,11 @@ class DashboardInterface(QWidget):
     def delete_current_task(self, item):
         task_id = item.data(Qt.ItemDataRole.UserRole)
         if task_id:
-            confirm = QMessageBox.question(self, "Confirm Delete", 
-                                         "Are you sure you want to delete this task?",
-                                         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-            
+            confirm = QMessageBox.question(self, "Confirm Delete",
+                                           "Are you sure you want to delete this task?",
+                                           QMessageBox.StandardButton.Yes
+                                           | QMessageBox.StandardButton.No)
+
             if confirm == QMessageBox.StandardButton.Yes:
                 self.task_manager.delete_task(task_id)
                 self.load_tasks()
@@ -173,17 +190,17 @@ class DashboardInterface(QWidget):
                 dialog = AddTaskDialog(self, task=task)
                 if dialog.exec():
                     data = dialog.get_data()
-                    
+
                     # Update Task Object
                     updated_task = Task(
                         id=task_id,
                         title=data['title'],
                         description=data['description'],
-                        status=data['status'], # Keep existing status or update if dialog allows
+                        status=data['status'],
                         created_at=task.created_at,
                         due_date=data['due_date'],
                         priority=data['priority']
                     )
-                    
+
                     self.task_manager.update_task(updated_task)
                     self.load_tasks()

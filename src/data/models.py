@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 
+
 @dataclass
 class Task:
     id: Optional[int]
@@ -12,6 +13,7 @@ class Task:
     created_at: datetime
     due_date: Optional[datetime]
     priority: str
+
 
 @dataclass
 class UserProfile:
