@@ -4,6 +4,7 @@ from sqlite3 import Error
 from typing import Optional
 from data.models import Task
 
+
 def create_connection(db_file):
     """ create a database connection to the SQLite database
         specified by db_file
@@ -19,6 +20,7 @@ def create_connection(db_file):
 
     return conn
 
+
 def _serialize_for_sqlite(value) -> str:
     """Convert datetime to ISO string for sqlite3 (avoids Python 3.12+ DeprecationWarning)."""
     if value is None:
@@ -26,6 +28,7 @@ def _serialize_for_sqlite(value) -> str:
     if hasattr(value, "isoformat"):
         return value.isoformat()
     return str(value) if value else ""
+
 
 def _row_to_task(row) -> Task:
     """Map a DB row to a Task. DB stores created_at/due_date as ISO strings."""
@@ -39,6 +42,7 @@ def _row_to_task(row) -> Task:
         priority=row[6],
     )
 
+
 def create_table(conn, create_table_sql):
     """ create a table from the create_table_sql statement
     :param conn: Connection object
@@ -50,6 +54,7 @@ def create_table(conn, create_table_sql):
         c.execute(create_table_sql)
     except Error as e:
         print(e)
+
 
 def init_db(db_file):
     database = db_file
@@ -81,6 +86,7 @@ def init_db(db_file):
         print("Database initialized successfully.")
     else:
         print("Error! cannot create the database connection.")
+
 
 class DataHandler:
     """
@@ -139,7 +145,8 @@ class DataHandler:
     def update_task(self, task: Task) -> None:
         cur = self._conn.cursor()
         cur.execute(
-            """UPDATE tasks SET title=?, description=?, status=?, due_date=?, priority=? WHERE id=?""",
+            """UPDATE tasks SET title=?, description=?, status=?
+               , due_date=?, priority=? WHERE id=?""",
             (
                 task.title,
                 task.description or "",
@@ -150,5 +157,3 @@ class DataHandler:
             ),
         )
         self._conn.commit()
-
-

@@ -2,6 +2,7 @@
 Business logic for tasks. Delegates all DB access to DataHandler.
 Keeps core logic DB-agnostic for easier testing and future upgrades.
 """
+import sqlite3
 from data.models import Task
 from data.DataBaseHandler import DataHandler
 
@@ -16,19 +17,46 @@ class TaskManager:
         self._data_handler.close()
 
     def add_task(self, task: Task) -> int:
-        return self._data_handler.add_task(task)
+        """Saves a new task to the database safely."""
+        try:
+            return self._data_handler.add_task(task)
+        except sqlite3.Error as e:
+            print(f"Database Error on Add: {e}")
+            return -1
 
     def get_all_tasks(self) -> list:
-        return self._data_handler.get_all_tasks()
+        """Fetches all tasks, returning an empty list if the database fails."""
+        try:
+            return self._data_handler.get_all_tasks()
+        except sqlite3.Error as e:
+            print(f"Database Error on Get All: {e}")
+            return []
 
     def get_task_by_id(self, task_id: int):
-        return self._data_handler.get_task_by_id(task_id)
+        """Fetches a specific task by ID securely."""
+        try:
+            return self._data_handler.get_task_by_id(task_id)
+        except sqlite3.Error as e:
+            print(f"Database Error on Get ID: {e}")
+            return None
 
     def delete_task(self, task_id: int) -> None:
-        self._data_handler.delete_task(task_id)
+        """Deletes a task safely."""
+        try:
+            self._data_handler.delete_task(task_id)
+        except sqlite3.Error as e:
+            print(f"Database Error on Delete: {e}")
 
     def update_task_status(self, task_id: int, status: str) -> None:
-        self._data_handler.update_task_status(task_id, status)
+        """Updates just the string status of a specific task."""
+        try:
+            self._data_handler.update_task_status(task_id, status)
+        except sqlite3.Error as e:
+            print(f"Database Error on Update Status: {e}")
 
     def update_task(self, task: Task) -> None:
-        self._data_handler.update_task(task)
+        """Updates an entire task object securely."""
+        try:
+            self._data_handler.update_task(task)
+        except sqlite3.Error as e:
+            print(f"Database Error on Update: {e}")
