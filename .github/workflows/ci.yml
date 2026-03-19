@@ -12,7 +12,7 @@ jobs:
 
     steps:
     - name: Checkout Repository
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
 
     - name: Set up Python
       uses: actions/setup-python@v4
@@ -44,31 +44,40 @@ jobs:
           libdbus-1-3 \
           libfontconfig1 \
           libxrender1 \
-          libxi6
+          libxi6 \
+          libxtst6
 
     - name: Install Python Dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-        # Ensuring pytest-qt and pytest-xvfb are present if not in requirements.txt
         pip install pytest-qt pytest-xvfb
 
     - name: Lint with Flake8
       run: |
-        # Added W504 to ignore list to match your earlier error
+        # E402: imports not at top, W503/W504: line breaks around operators
         flake8 src/ --max-line-length=100 --ignore=E402,W503,W504
+
+    - name: Verify Qt Platform Plugin Dependencies
+      run: |
+        PYSIDE_PATH=$(python -c "import PySide6, os; print(os.path.dirname(PySide6.__file__))")
+        PLATFORM_PLUGIN="$PYSIDE_PATH/Qt/plugins/platforms/libqxcb.so"
+        echo "Checking: $PLATFORM_PLUGIN"
+        if [ -f "$PLATFORM_PLUGIN" ]; then
+          # We use '|| true' so grep doesn't exit with 1 if no missing libs are found
+          ldd "$PLATFORM_PLUGIN" | grep "not found" || echo "All system libraries are present."
+        else
+          echo "Error: Platform plugin not found!"
+          exit 1
+        fi
 
     - name: Run Automated UI Tests
       env:
-        # Force Qt to use the X11 backend provided by Xvfb
         QT_QPA_PLATFORM: xcb
+        QT_X11_NO_MITSHM: 1
+        # Set PYTHONPATH so pytest can find your 'src' folder
+        PYTHONPATH: ${{ github.workspace }}/src
+        QT_QPA_PLATFORM_PLUGIN_PATH: ${{ env.pythonLocation }}/lib/python3.11/site-packages/PySide6/Qt/plugins
       run: |
-        # --auto-servernum ensures no conflict with existing X servers
-        # --server-args provides a high-res virtual buffer for the UI to draw on
         xvfb-run --auto-servernum --server-args="-screen 0 1280x1024x24" \
         pytest tests/automation/test_features.py -v
-
-    - name: Debug Missing Libraries
-      run: |
-        # Find the platform plugin and check its dependencies
-        ldd $(python -c "import PySide6; import os; print(os.path.join(os.path.dirname(PySide6.__file__), 'Qt/plugins/platforms/libqxcb.so'))") | grep "not found"
