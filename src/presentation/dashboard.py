@@ -20,6 +20,8 @@ class DashboardInterface(QWidget):
         super().__init__(parent=parent)
         self.setObjectName("DashboardInterface")
 
+        self.current_mode = "active"
+
         # 1. First, check if a direct path was passed or parent has it
         if db_file is None and parent is not None:
             db_file = getattr(parent, "db_file", None)
@@ -47,9 +49,9 @@ class DashboardInterface(QWidget):
 
         # Header Region
         header_layout = QHBoxLayout()
-        title = QLabel("Dashboard Overview")
-        title.setStyleSheet("font-size: 24px; font-weight: bold; color: #333;")
-        header_layout.addWidget(title)
+        self.title_label = QLabel("Dashboard Overview")
+        self.title_label.setStyleSheet("font-size: 24px; font-weight: bold; color: #333;")
+        header_layout.addWidget(self.title_label)
         header_layout.addStretch(1)
 
         # Add Task Button
@@ -74,11 +76,18 @@ class DashboardInterface(QWidget):
         # Disconnect momentarily to avoid triggering the signal while loading
         try:
             self.task_list.itemChanged.disconnect(self.on_item_changed)
+        except RuntimeError:
+            pass  # PySide6 safe ignore
         except TypeError:
-            pass  # Signal not connected yet (first load)
+            pass  # PySide6 safe ignore
 
         self.task_list.clear()
-        tasks = self.task_manager.get_all_tasks()
+
+        # Fetch the right list based on mode
+        if self.current_mode == "trash":
+            tasks = self.task_manager.get_deleted_tasks()
+        else:
+            tasks = self.task_manager.get_all_tasks()
 
         for task in tasks:
             due_display = task.due_date if task.due_date else ""
@@ -86,7 +95,7 @@ class DashboardInterface(QWidget):
             item = QListWidgetItem(item_text)
             item.setData(Qt.ItemDataRole.UserRole, task.id)
 
-            # Add Checkbox
+            # Add Checkbox back
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
 
             if task.status == "Completed":
@@ -99,7 +108,7 @@ class DashboardInterface(QWidget):
 
             self.task_list.addItem(item)
 
-        # Reconnect signal
+        # Reconnect signal so clicking the checkbox works again!
         self.task_list.itemChanged.connect(self.on_item_changed)
 
     def on_item_changed(self, item):
@@ -159,15 +168,36 @@ class DashboardInterface(QWidget):
         item = self.task_list.itemAt(pos)
         if item:
             menu = QMenu(self)
-            edit_action = menu.addAction("Edit Task")
-            delete_action = menu.addAction("Delete Task")
 
-            action = menu.exec(self.task_list.mapToGlobal(pos))
+            if self.current_mode == "active":
+                edit_action = menu.addAction("Edit Task")
+                delete_action = menu.addAction("Move to Trash")
+                action = menu.exec(self.task_list.mapToGlobal(pos))
 
-            if action == delete_action:
-                self.delete_current_task(item)
-            elif action == edit_action:
-                self.edit_current_task(item)
+                if action == delete_action:
+                    self.delete_current_task(item)
+                elif action == edit_action:
+                    self.edit_current_task(item)
+
+            elif self.current_mode == "trash":
+                restore_action = menu.addAction("Restore Task")
+                perm_delete_action = menu.addAction("Permanently Delete")
+                action = menu.exec(self.task_list.mapToGlobal(pos))
+
+                if action == restore_action:
+                    task_id = item.data(Qt.ItemDataRole.UserRole)
+                    self.task_manager.restore_task(task_id)
+                    self.load_tasks()
+                elif action == perm_delete_action:
+                    task_id = item.data(Qt.ItemDataRole.UserRole)
+                    confirm = QMessageBox.warning(
+                        self, "Permanent Delete",
+                        "This will permanently obliterate this task. Are you sure?",
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                    )
+                    if confirm == QMessageBox.StandardButton.Yes:
+                        self.task_manager.permanently_delete_task(task_id)
+                        self.load_tasks()
 
     def delete_current_task(self, item):
         task_id = item.data(Qt.ItemDataRole.UserRole)
@@ -204,3 +234,14 @@ class DashboardInterface(QWidget):
 
                     self.task_manager.update_task(updated_task)
                     self.load_tasks()
+
+    def set_mode(self, mode: str):
+        """Switches the dashboard between Active Tasks and Trash view."""
+        self.current_mode = mode
+        if mode == "trash":
+            self.title_label.setText("Trash Bin")
+            self.add_btn.hide()
+        else:
+            self.title_label.setText("My Tasks")
+            self.add_btn.show()
+        self.load_tasks()

@@ -149,14 +149,14 @@ def test_feature3_mark_task_completed(app_window, qtbot):
     assert db_task.status == "Completed"
 
 def test_feature4_delete_task(app_window, qtbot, monkeypatch):
-    """TC-006: Verify successful task deletion"""
+    """TC-006: Verify successful task soft deletion (Sprint 2)"""
     dashboard = app_window.dashboard
 
     # Add a dummy task directly
     from data.models import Task
     from datetime import datetime
     new_task = Task(id=None, title="Task To Delete", description="", status="Pending", 
-                    created_at=datetime.now(), due_date="", priority="Medium")
+                    created_at=datetime.now(), due_date="", priority="Medium", is_deleted=0)
     dashboard.task_manager.add_task(new_task)
     dashboard.load_tasks()
 
@@ -168,12 +168,72 @@ def test_feature4_delete_task(app_window, qtbot, monkeypatch):
     from PySide6.QtWidgets import QMessageBox
     monkeypatch.setattr(QMessageBox, "question", lambda *args, **kwargs: QMessageBox.StandardButton.Yes)
 
-    # Call the delete method directly
+    # Call the delete method directly (moves to trash)
     dashboard.delete_current_task(item)
 
-    # Verify UI is updated
+    # Verify UI is updated (disappears from active dashboard)
     assert dashboard.task_list.count() == 0
 
-    # Verify DB is updated
+    # Verify DB is updated to Soft Delete (is_deleted = 1) instead of completely wiped
+    db_task = dashboard.task_manager.get_task_by_id(task_id)
+    assert db_task is not None
+    assert db_task.is_deleted == 1
+
+def test_feature5_trash_management(app_window, qtbot, monkeypatch):
+    """[EP01-FT05] Trash Management with Restore and Permanent Delete Functionality"""
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QMessageBox
+    from datetime import datetime
+    from data.models import Task
+
+    dashboard = app_window.dashboard
+    main_window = app_window
+
+    # 1. Setup: Create a task via the manager so we have a clean state
+    new_task = Task(id=None, title="Trash Test Task", description="Testing delete/restore", 
+                    status="Pending", created_at=datetime.now(), due_date="2026-03-20", 
+                    priority="High", is_deleted=0)
+    task_id = dashboard.task_manager.add_task(new_task)
+    dashboard.load_tasks()
+
+    # 2. Move to Trash (Soft Delete)
+    # Mocking the confirmation dialog for deletion
+    monkeypatch.setattr(QMessageBox, "question", lambda *args: QMessageBox.StandardButton.Yes)
+
+    initial_count = dashboard.task_list.count()
+    dashboard.delete_current_task(dashboard.task_list.item(0))
+
+    assert dashboard.task_list.count() == initial_count - 1 
+
+    # 3. Navigate to Trash Bin View
+    qtbot.mouseClick(main_window.btn_trash, Qt.MouseButton.LeftButton)
+    assert dashboard.current_mode == "trash"
+    # Ensure our specific task is the one in the trash
+    item = dashboard.task_list.item(0)
+    assert "Trash Test Task" in item.text()
+
+    # 4. Restore the Task
+    # Instead of calling task_manager.restore directly, trigger the UI action if possible
+    dashboard.task_manager.restore_task(task_id)
+    dashboard.load_tasks()
+    assert dashboard.task_list.count() == 0 # Gone from trash view
+
+    # Verify it's back on the Dashboard
+    qtbot.mouseClick(main_window.btn_dash, Qt.MouseButton.LeftButton)
+    assert dashboard.task_list.count() == initial_count
+    assert "Trash Test Task" in dashboard.task_list.item(0).text()
+
+    # 5. Permanent Delete
+    dashboard.delete_current_task(dashboard.task_list.item(0)) # Back to trash
+    qtbot.mouseClick(main_window.btn_trash, Qt.MouseButton.LeftButton)
+
+    # Mock the permanent delete warning
+    monkeypatch.setattr(QMessageBox, "warning", lambda *args: QMessageBox.StandardButton.Yes)
+
+    dashboard.task_manager.permanently_delete_task(task_id)
+    dashboard.load_tasks()
+
+    # Final Database/UI Verifications
+    assert dashboard.task_list.count() == 0
     db_task = dashboard.task_manager.get_task_by_id(task_id)
     assert db_task is None
