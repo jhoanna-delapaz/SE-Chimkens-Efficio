@@ -1,4 +1,3 @@
-
 import sys
 import os
 from PySide6.QtWidgets import (
@@ -41,23 +40,27 @@ class MainWindow(QMainWindow):
 
         nav_layout = QVBoxLayout(self.nav_bar)
 
-        btn_dash = QPushButton("Dashboard")
+        self.btn_dash = QPushButton("Dashboard")
+        self.btn_trash = QPushButton("Trash Bin")
 
-        btn_dash.setStyleSheet("""
-                                QPushButton {
-                                    text-align: left;
-                                    padding: 10px;
-                                    border: none;
-                                    background-color: transparent;
-                                    color: white;
-                                    font-size: 14px;
-                                }
-                                QPushButton:hover {
-                                    background-color: #3d3d3d;
-                                }
-                            """)
+        nav_style = """
+                        QPushButton {
+                            text-align: left;
+                            padding: 10px;
+                            border: none;
+                            background-color: transparent;
+                            color: white;
+                            font-size: 14px;
+                        }
+                        QPushButton:hover {
+                            background-color: #3d3d3d;
+                        }
+                    """
+        self.btn_dash.setStyleSheet(nav_style)
+        self.btn_trash.setStyleSheet(nav_style)
 
-        nav_layout.addWidget(btn_dash)
+        nav_layout.addWidget(self.btn_dash)
+        nav_layout.addWidget(self.btn_trash)
         nav_layout.addStretch()
 
         main_layout.addWidget(self.nav_bar)
@@ -69,6 +72,10 @@ class MainWindow(QMainWindow):
         # Initialize Dashboard
         self.dashboard = DashboardInterface(self, self.db_file)
         content_layout.addWidget(self.dashboard)
+
+        # Connect Navigation Buttons to Dashboard Modes
+        self.btn_dash.clicked.connect(lambda: self.dashboard.set_mode("active"))
+        self.btn_trash.clicked.connect(lambda: self.dashboard.set_mode("trash"))
 
         main_layout.addWidget(self.content_area)
 
