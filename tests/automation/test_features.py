@@ -237,3 +237,36 @@ def test_feature5_trash_management(app_window, qtbot, monkeypatch):
     assert dashboard.task_list.count() == 0
     db_task = dashboard.task_manager.get_task_by_id(task_id)
     assert db_task is None
+
+def test_feature6_search_tasks(app_window, qtbot):
+    """[EP01-FT06] Task Search Functionality #26"""
+    from data.models import Task
+    from datetime import datetime
+    
+    dashboard = app_window.dashboard
+    
+    # 1. Setup: Create two distinct tasks
+    task1 = Task(id=None, title="Buy Groceries", description="Milk and eggs", 
+                 status="Pending", created_at=datetime.now(), due_date="", priority="Medium", is_deleted=0)
+    task2 = Task(id=None, title="Finish Efficio", description="Code search feature", 
+                 status="Pending", created_at=datetime.now(), due_date="", priority="High", is_deleted=0)
+                 
+    dashboard.task_manager.add_task(task1)
+    dashboard.task_manager.add_task(task2)
+    dashboard.load_tasks()
+    
+    assert dashboard.task_list.count() == 2
+    
+    # 2. Perform Real-time Search Simulation (by Title)
+    dashboard.search_bar.setText("Groceries")
+    assert dashboard.task_list.count() == 1
+    assert "Buy Groceries" in dashboard.task_list.item(0).text()
+    
+    # 3. Perform Real-time Search Simulation (by Description)
+    dashboard.search_bar.setText("Code search")
+    assert dashboard.task_list.count() == 1
+    assert "Finish Efficio" in dashboard.task_list.item(0).text()
+    
+    # 4. Clear Search (Should mathematically return all tasks instantly)
+    dashboard.search_bar.setText("")
+    assert dashboard.task_list.count() == 2
