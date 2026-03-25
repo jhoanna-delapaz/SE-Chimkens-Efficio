@@ -2,9 +2,9 @@ name: Efficio CI/CD Pipeline
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "develop" ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ "main", "develop" ]
 
 jobs:
   build-and-test:
@@ -80,4 +80,11 @@ jobs:
         QT_QPA_PLATFORM_PLUGIN_PATH: ${{ env.pythonLocation }}/lib/python3.11/site-packages/PySide6/Qt/plugins
       run: |
         xvfb-run --auto-servernum --server-args="-screen 0 1280x1024x24" \
-        pytest tests/automation/test_features.py -v
+        pytest tests/automation/test_features.py -v --junitxml=reports/test-results.xml
+
+    - name: Publish Visual Test Summary
+      uses: EnricoMi/publish-unit-test-result-action@v2
+      if: always()
+      with:
+        files: "reports/test-results.xml"
+
