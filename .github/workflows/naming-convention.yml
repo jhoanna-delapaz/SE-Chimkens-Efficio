@@ -1,0 +1,64 @@
+name: Enforce Naming Convention
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check-commit-message:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check commit messages
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pattern = /^\[EP\d{2}-FT\d{2}\] (add|fix|update|remove): .+/i;
+
+            const commits = context.payload.commits || [];
+
+            for (const commit of commits) {
+              const message = commit.message;
+
+              if (!pattern.test(message)) {
+                core.setFailed(`
+Invalid commit message!
+
+Required format:
+[EP##-FT##] type: short description
+
+Allowed types:
+add, fix, update, remove
+
+Example:
+[EP01-FT06] add: create button
+                `);
+              }
+            }
+
+  check-pr-title:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check PR title
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pattern = /^\[EP\d{2}-FT\d{2}\] (add|fix|update|remove): .+/i;
+            const title = context.payload.pull_request.title;
+
+            if (!pattern.test(title)) {
+              core.setFailed(`
+Invalid title!
+
+Required format:
+[EP##-FT##] type: short description
+
+Allowed types:
+add, fix, update, remove
+
+Example:
+[EP01-FT06] add: create button
+              `);
+            }
