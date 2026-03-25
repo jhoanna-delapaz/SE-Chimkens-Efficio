@@ -59,6 +59,37 @@ class AddTaskDialog(QDialog):
                 self.priority_input.setCurrentIndex(index)
         layout.addWidget(self.priority_input)
 
+        # Color
+        layout.addWidget(QLabel("Task Color:"))
+        self.color_combo = QComboBox()
+        # Original Soft Themes
+        self.color_combo.addItem("🌊 Ocean Peach", "#6579BE")
+        self.color_combo.addItem("🏜️ Warm Sand", "#E9DFD8")
+        self.color_combo.addItem("🔥 Vibrant Orange", "#F54800")
+        self.color_combo.addItem("🍦 Soft Cream", "#FDF1F5")
+        self.color_combo.addItem("🪵 Earthy Brown", "#8A6729")
+        self.color_combo.addItem("🪨 Muted Stone", "#ECE7E2")
+        self.color_combo.addItem("🐋 Deep Ocean", "#19485F")
+        self.color_combo.addItem("🌲 Forest Pink", "#285B23")
+        self.color_combo.addItem("🥀 Dusty Rose", "#92736C")
+
+        # New High-Contrast & Solid Themes
+        self.color_combo.addItem("🌑 Pitch Black (White Text)", "#000000")
+        self.color_combo.addItem("🌕 Pure White (Black Text)", "#FFFFFF")
+
+        # We use slight micro-shades of White/Black to keep Python Dictionaries happy
+        self.color_combo.addItem("🌫️ Frost White (Gray Text)", "#FFFFFE")
+        self.color_combo.addItem("☁️ Light Gray (White Text)", "#DDDDDD")
+        self.color_combo.addItem("🥶 Ice White (Blue Text)", "#FFFFFD")
+        self.color_combo.addItem("🚨 Hacker Black (Red Text)", "#000001")
+        self.color_combo.addItem("📟 Matrix Black (Green Text)", "#000002")
+
+        if task and hasattr(task, 'color') and task.color:
+            index = self.color_combo.findData(task.color)
+            if index >= 0:
+                self.color_combo.setCurrentIndex(index)
+        layout.addWidget(self.color_combo)
+
         # Buttons
         self.button_box = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok
@@ -82,5 +113,6 @@ class AddTaskDialog(QDialog):
             "description": self.desc_input.toPlainText().strip(),
             "due_date": self.date_input.date().toString(Qt.DateFormat.ISODate),
             "priority": self.priority_input.currentText(),
-            "status": self.task.status if self.task else "Pending"
+            "status": self.task.status if self.task else "Pending",
+            "color": self.color_combo.currentData()  # Extract the hidden Hex Code
         }

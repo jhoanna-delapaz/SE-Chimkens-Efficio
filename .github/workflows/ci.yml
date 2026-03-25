@@ -84,8 +84,8 @@ jobs:
         QT_X11_NO_MITSHM: 1
         # Set PYTHONPATH so pytest can find your 'src' folder
         PYTHONPATH: ${{ github.workspace }}/src
-        QT_QPA_PLATFORM_PLUGIN_PATH: ${{ env.pythonLocation }}/lib/python3.11/site-packages/PySide6/Qt/plugins
       run: |
+        export QT_QPA_PLATFORM_PLUGIN_PATH="$pythonLocation/lib/python3.11/site-packages/PySide6/Qt/plugins"
         xvfb-run --auto-servernum --server-args="-screen 0 1280x1024x24" \
         pytest tests/automation/test_features.py -v --junitxml=reports/test-results.xml
 
