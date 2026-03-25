@@ -141,17 +141,38 @@ class DataHandler:
         self._conn.commit()
         return cur.lastrowid
 
-    def get_all_tasks(self) -> list:
-        """Fetches only ACTIVE tasks (is_deleted = 0) from the database."""
+    def get_all_tasks(self, search_query: str = "") -> list:
+        """Fetches ACTIVE tasks, optionally filtered by a search keyword."""
         cur = self._conn.cursor()
-        cur.execute("SELECT * FROM tasks WHERE is_deleted = 0 OR is_deleted IS NULL")
+
+        if search_query:
+            # Add wildcards to match the string anywhere inside the field
+            query = f"%{search_query}%"
+            cur.execute("""
+                SELECT * FROM tasks
+                WHERE (is_deleted = 0 OR is_deleted IS NULL)
+                AND (title LIKE ? OR description LIKE ?)
+            """, (query, query))
+        else:
+            cur.execute("SELECT * FROM tasks WHERE is_deleted = 0 OR is_deleted IS NULL")
+
         rows = cur.fetchall()
         return [_row_to_task(r) for r in rows]
 
-    def get_deleted_tasks(self) -> list:
-        """Fetches only tasks located in the Trash (is_deleted = 1)."""
+    def get_deleted_tasks(self, search_query: str = "") -> list:
+        """Fetches TRASH tasks, optionally filtered by a search keyword."""
         cur = self._conn.cursor()
-        cur.execute("SELECT * FROM tasks WHERE is_deleted = 1")
+
+        if search_query:
+            query = f"%{search_query}%"
+            cur.execute("""
+                SELECT * FROM tasks
+                WHERE is_deleted = 1
+                AND (title LIKE ? OR description LIKE ?)
+            """, (query, query))
+        else:
+            cur.execute("SELECT * FROM tasks WHERE is_deleted = 1")
+
         rows = cur.fetchall()
         return [_row_to_task(r) for r in rows]
 

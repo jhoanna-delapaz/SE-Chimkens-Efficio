@@ -24,12 +24,12 @@ class TaskManager:
             print(f"Database Error on Add: {e}")
             return -1
 
-    def get_all_tasks(self) -> list:
-        """Fetches all tasks, returning an empty list if the database fails."""
+    def get_all_tasks(self, search_query: str = "") -> list:
+        """Fetches all active tasks, optionally applying a keyword search."""
         try:
-            return self._data_handler.get_all_tasks()
+            return self._data_handler.get_all_tasks(search_query)
         except sqlite3.Error as e:
-            print(f"Database Error on Get All: {e}")
+            print(f"Database Error: {e}")
             return []
 
     def get_task_by_id(self, task_id: int):
@@ -61,10 +61,10 @@ class TaskManager:
         except sqlite3.Error as e:
             print(f"Database Error on Update: {e}")
 
-    def get_deleted_tasks(self) -> list:
-        """Fetches all tasks from the Trash securely."""
+    def get_deleted_tasks(self, search_query: str = "") -> list:
+        """Fetches all tasks from the Trash securely, optionally applying a keyword search."""
         try:
-            return self._data_handler.get_deleted_tasks()
+            return self._data_handler.get_deleted_tasks(search_query)
         except sqlite3.Error as e:
             print(f"Database Error on Get Deleted: {e}")
             return []

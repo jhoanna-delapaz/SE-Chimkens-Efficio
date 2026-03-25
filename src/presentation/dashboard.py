@@ -2,7 +2,8 @@
 import os
 from datetime import datetime
 from PySide6.QtWidgets import (QVBoxLayout, QWidget, QPushButton, QListWidget,
-                               QListWidgetItem, QHBoxLayout, QLabel, QMenu, QMessageBox
+                               QListWidgetItem, QHBoxLayout, QLabel, QMenu, QMessageBox,
+                               QLineEdit
                                )
 from PySide6.QtCore import Qt
 
@@ -52,6 +53,17 @@ class DashboardInterface(QWidget):
         self.title_label = QLabel("Dashboard Overview")
         self.title_label.setStyleSheet("font-size: 24px; font-weight: bold; color: #333;")
         header_layout.addWidget(self.title_label)
+
+        # The Live Search Bar
+        self.search_bar = QLineEdit()
+        self.search_bar.setPlaceholderText("🔍 Search tasks...")
+        self.search_bar.setStyleSheet("padding: 5px; border-radius: 4px; border: 1px solid #ccc;")
+        self.search_bar.setFixedWidth(250)
+
+        # By connecting textChanged directly to load_tasks, we get real-time filtering
+        self.search_bar.textChanged.connect(lambda: self.load_tasks())
+
+        header_layout.addWidget(self.search_bar)
         header_layout.addStretch(1)
 
         # Add Task Button
@@ -83,11 +95,15 @@ class DashboardInterface(QWidget):
 
         self.task_list.clear()
 
-        # Fetch the right list based on mode
+        # Read whatever the user just typed into the search box
+        # If it's empty, it will just load everything safely
+        query = self.search_bar.text()
+
+        # Fetch the right list based on mode and pass the search query
         if self.current_mode == "trash":
-            tasks = self.task_manager.get_deleted_tasks()
+            tasks = self.task_manager.get_deleted_tasks(query)
         else:
-            tasks = self.task_manager.get_all_tasks()
+            tasks = self.task_manager.get_all_tasks(query)
 
         for task in tasks:
             due_display = task.due_date if task.due_date else ""
@@ -238,6 +254,7 @@ class DashboardInterface(QWidget):
     def set_mode(self, mode: str):
         """Switches the dashboard between Active Tasks and Trash view."""
         self.current_mode = mode
+        self.search_bar.clear()
         if mode == "trash":
             self.title_label.setText("Trash Bin")
             self.add_btn.hide()
