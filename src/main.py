@@ -1,8 +1,7 @@
 import sys
 import os
 from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QVBoxLayout,
-    QWidget, QHBoxLayout, QPushButton
+    QApplication, QMainWindow
 )
 from config import get_default_db_path
 from data.DataBaseHandler import init_db
@@ -22,62 +21,10 @@ class MainWindow(QMainWindow):
 
         self.db_file = db_file
         self.setWindowTitle("EFFICIO - PySide6")
-        self.resize(1000, 700)
+        self.resize(1200, 850)
 
-        # Central Widget & Layout
-        central_widget = QWidget()
-        self.setCentralWidget(central_widget)
-        main_layout = QHBoxLayout(central_widget)
-
-        # Simple Sidebar Navigation
-        self.nav_bar = QWidget()
-        self.nav_bar.setFixedWidth(200)
-        self.nav_bar.setStyleSheet("""
-                                    background-color: #2d2d2d;
-                                    color: white;
-                                    border-right: 1px solid #444;
-                                """)
-
-        nav_layout = QVBoxLayout(self.nav_bar)
-
-        self.btn_dash = QPushButton("Dashboard")
-        self.btn_trash = QPushButton("Trash Bin")
-
-        nav_style = """
-                        QPushButton {
-                            text-align: left;
-                            padding: 10px;
-                            border: none;
-                            background-color: transparent;
-                            color: white;
-                            font-size: 14px;
-                        }
-                        QPushButton:hover {
-                            background-color: #3d3d3d;
-                        }
-                    """
-        self.btn_dash.setStyleSheet(nav_style)
-        self.btn_trash.setStyleSheet(nav_style)
-
-        nav_layout.addWidget(self.btn_dash)
-        nav_layout.addWidget(self.btn_trash)
-        nav_layout.addStretch()
-
-        main_layout.addWidget(self.nav_bar)
-
-        # Content Area
-        self.content_area = QWidget()
-        content_layout = QVBoxLayout(self.content_area)
-
-        # Initialize Dashboard
         self.dashboard = DashboardInterface(self, self.db_file)
-        content_layout.addWidget(self.dashboard)
-
-        # Connect Navigation Buttons to Dashboard Modes
-        self.btn_dash.clicked.connect(lambda: self.dashboard.set_mode("active"))
-        self.btn_trash.clicked.connect(lambda: self.dashboard.set_mode("trash"))
-
-        main_layout.addWidget(self.content_area)
+        self.setCentralWidget(self.dashboard)
 
 
 if __name__ == "__main__":
