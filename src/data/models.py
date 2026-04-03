@@ -14,6 +14,7 @@ class Task:
     due_date: Optional[datetime]
     priority: str
     is_deleted: int = 0
+    color: str = "#FFFFFF"  # Default white HEX
 
 
 @dataclass

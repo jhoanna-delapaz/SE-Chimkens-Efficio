@@ -270,3 +270,40 @@ def test_feature6_search_tasks(app_window, qtbot):
     # 4. Clear Search (Should mathematically return all tasks instantly)
     dashboard.search_bar.setText("")
     assert dashboard.task_list.count() == 2
+
+def test_feature7_task_color(app_window, qtbot):
+    """[EP01-FT7] Verify Custom Theme Colors are saved to DB and load pastel UI perfectly"""
+    from data.models import Task
+    from datetime import datetime
+    from PySide6.QtCore import Qt
+    
+    dashboard = app_window.dashboard
+    
+    # 1. Setup: Create a task with a custom theme color (Deep Ocean)
+    task_theme = Task(id=None, title="Theme Test", description="", 
+                      status="Pending", created_at=datetime.now(), 
+                      due_date="", priority="Medium", is_deleted=0, 
+                      color="#19485F")
+                      
+    dashboard.task_manager.add_task(task_theme)
+    dashboard.load_tasks()
+    
+    # 2. Verify UI Rendering Strategy
+    assert dashboard.task_list.count() == 1
+    item = dashboard.task_list.item(0)
+    
+    # 3. Verify the Background PySide6 Brush Color
+    bg_brush = item.background()
+    bg_color = bg_brush.color()
+    assert bg_color.name().upper() == "#19485F"
+    assert bg_color.alpha() == 60  # Verifying the aesthetic alpha trick!
+    
+    # 4. Verify Foreground PySide6 Brush Color (from the Theme Map mapping)
+    fg_brush = item.foreground()
+    fg_color = fg_brush.color()
+    assert fg_color.name().upper() == "#D9E0A4"  # The exact Dictionary Foreground!
+
+    # 5. Verify Database Retrieval
+    task_id = item.data(Qt.ItemDataRole.UserRole)
+    db_task = dashboard.task_manager.get_task_by_id(task_id)
+    assert db_task.color == "#19485F"

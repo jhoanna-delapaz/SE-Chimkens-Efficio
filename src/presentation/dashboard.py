@@ -10,6 +10,7 @@ from PySide6.QtCore import Qt
 from business.task_manager import TaskManager
 from data.models import Task
 from presentation.add_task_dialog import AddTaskDialog
+from PySide6.QtGui import QBrush, QColor
 try:
     from config import get_default_db_path
 except ImportError:
@@ -111,6 +112,47 @@ class DashboardInterface(QWidget):
             item = QListWidgetItem(item_text)
             item.setData(Qt.ItemDataRole.UserRole, task.id)
 
+            # Bespoke Custom Theme Dictionary Setup
+            THEME_MAP = {
+                # Original Themes
+                "#6579BE": "#EAB099",
+                "#E9DFD8": "#FF7F50",
+                "#F54800": "#AFAFDA",
+                "#FDF1F5": "#EE8E46",
+                "#8A6729": "#EBC8B3",
+                "#ECE7E2": "#4A7766",
+                "#19485F": "#D9E0A4",
+                "#285B23": "#F2CFF1",
+                "#92736C": "#FDF1F5",
+
+                # New Advanced Themes
+                "#000000": "#FFFFFF",  # Black bg, White fg
+                "#FFFFFF": "#000000",  # White bg, Black fg
+                "#FFFFFE": "#DDDDDD",  # Frost White bg, Light gray fg
+                "#DDDDDD": "#FFFFFF",  # Light gray bg, White fg
+                "#FFFFFD": "#0000FF",  # Ice White bg, Blue fg
+                "#000001": "#FF0000",  # Hacker Black bg, Red fg
+                "#000002": "#00FF00"   # Matrix Black bg, Green fg
+            }
+
+            if hasattr(task, 'color') and task.color in THEME_MAP:
+                # 1. Look up your exact background and foreground pairings
+                bg_hex = task.color
+                fg_hex = THEME_MAP[bg_hex]
+
+                # 2. Create the colors and apply the Soft Pastel Trick to the background
+                bg_color = QColor(bg_hex)
+                bg_color.setAlpha(60)  # Makes the background semi-transparent (pastel)
+
+                fg_color = QColor(fg_hex)  # The text remains 100% solid and vibrant
+
+                # 2. Paint the QListWidgetItem perfectly
+                item.setBackground(QBrush(bg_color))
+                item.setForeground(QBrush(fg_color))
+            else:
+                # Fallback for old tasks that had the old default #333333 color
+                item.setForeground(QBrush(QColor("#333333")))
+
             # Add Checkbox back
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
 
@@ -163,7 +205,8 @@ class DashboardInterface(QWidget):
                 status=data['status'],
                 created_at=datetime.now(),
                 due_date=data['due_date'],
-                priority=data['priority']
+                priority=data['priority'],
+                color=data.get('color', '#333333')  # NEW
             )
 
             # Save to DB safely
@@ -245,7 +288,8 @@ class DashboardInterface(QWidget):
                         status=data['status'],
                         created_at=task.created_at,
                         due_date=data['due_date'],
-                        priority=data['priority']
+                        priority=data['priority'],
+                        color=data.get('color', '#FFFFFF')  # NEW
                     )
 
                     self.task_manager.update_task(updated_task)
