@@ -1,0 +1,23 @@
+name: Ruff Linter & Formatter
+
+on:
+  push:
+    branches: [ "main", "dev" ]
+  pull_request:
+    branches: [ "main", "dev" ]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Ruff
+        run: pip install ruff
+
+      - name: Run Ruff Linter
+        run: ruff check --output-format=github .
+
+      - name: Verify Formatting matches Ruff
+        run: ruff format --check .

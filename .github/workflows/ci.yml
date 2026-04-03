@@ -60,11 +60,6 @@ jobs:
         pip install -r requirements.txt
         pip install pytest-qt pytest-xvfb
 
-    - name: Lint with Flake8
-      run: |
-        # E402: imports not at top, W503/W504: line breaks around operators
-        flake8 src/ --max-line-length=100 --ignore=E402,W503,W504
-
     - name: Verify Qt Platform Plugin Dependencies
       run: |
         PYSIDE_PATH=$(python -c "import PySide6, os; print(os.path.dirname(PySide6.__file__))")

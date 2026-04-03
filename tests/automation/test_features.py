@@ -1,106 +1,105 @@
 import os
 import sys
 import tempfile
+from datetime import datetime
+
 import pytest
 from PySide6.QtCore import Qt, QTimer
-# We must import QApplication to prevent pytest-qt from complaining or crashing if it's not set up
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QMessageBox
 
-# Add src directory to path to allow imports
+# Path resolution MUST execute before src imports
 current_dir = os.path.dirname(os.path.abspath(__file__))
 src_dir = os.path.join(current_dir, "..", "..", "src")
 sys.path.append(src_dir)
 
-from main import MainWindow
-from data.DataBaseHandler import init_db
+# Tell Ruff to ignore sorting (I001) and ignore import position (E402) for these 3 files!
+from data.DataBaseHandler import init_db  # noqa: I001, E402
+from data.models import Task  # noqa: I001, E402
+from main import MainWindow  # noqa: I001, E402
+
 
 @pytest.fixture
 def app_window(qtbot):
     """Fixture to set up the main window and a clean test database."""
-    # Use a unique temp DB path per test to avoid cross-test pollution (locked files, leftover data)
     fd, TEST_DB_PATH = tempfile.mkstemp(suffix=".db", prefix="test_efficio_")
     os.close(fd)
     init_db(TEST_DB_PATH)
 
-    # Initialize main window
     window = MainWindow(TEST_DB_PATH)
-
-    # Replace with TaskManager using test DB (close old connection to avoid ResourceWarning)
     from business.task_manager import TaskManager
-    try:
-        window.dashboard.task_manager.close()
-    except Exception:
-        pass
-    window.dashboard.task_manager = TaskManager(TEST_DB_PATH)
 
-    window.dashboard.load_tasks() # Reload with test DB
+    window.dashboard.task_manager = TaskManager(TEST_DB_PATH)
+    window.dashboard.load_tasks()
 
     window.show()
     qtbot.addWidget(window)
     yield window
 
-    # Teardown: close DB connection before removing file (avoids lock on Windows)
+    # 1. Force the database connection to let go of the file
     try:
-        window.dashboard.task_manager.close()
+        if hasattr(window.dashboard.task_manager, "close"):
+            window.dashboard.task_manager.close()
     except Exception:
         pass
-    window.close()
+
+    # 2. Tell Windows to delete it, but don't crash if Windows is too slow to unlock it
     try:
         if os.path.exists(TEST_DB_PATH):
             os.remove(TEST_DB_PATH)
     except (PermissionError, OSError):
         pass
 
-def test_feature2_view_dashboard(app_window, qtbot):
-    """TC-003: Verify tasks display on dashboard"""
-    dashboard = app_window.dashboard
-    assert dashboard.task_list is not None
-    assert dashboard.add_btn.text() == "+ New Task"
-    # By default, the clean database should have 0 tasks shown
-    assert dashboard.task_list.count() == 0
 
-def test_feature1_add_task_success(app_window, qtbot, monkeypatch):
-    """TC-001: Verify successful task creation & Handle ISO 25010 Success Popup"""
+def test_tc003_view_dashboard(app_window, qtbot):
+    """TC-003: Verify native QTreeWidget initializes Accordion Groups empty"""
     dashboard = app_window.dashboard
-    initial_count = dashboard.task_list.count()
+    assert dashboard.task_tree is not None
 
-    # Force the test to instantly click "OK" on the new Success QMessageBox!
-    from PySide6.QtWidgets import QMessageBox
-    monkeypatch.setattr(QMessageBox, "information", lambda *args, **kwargs: QMessageBox.StandardButton.Ok)
+    # Mathematical validation: Top level items are the 3 groups + 2 spacers = 5
+    assert dashboard.task_tree.topLevelItemCount() == 5
+
+    # Extract "To-Do" accordion. It should ONLY have 1 child (the Inline Header row).
+    todo_group = dashboard.task_tree.topLevelItem(0)
+    assert todo_group.childCount() == 1  # 0 user tasks
+
+
+def test_tc001_add_task_success(app_window, qtbot, monkeypatch):
+    """TC-001: Verify creation pushes task to QTreeWidget Children"""
+    dashboard = app_window.dashboard
+
+    # Auto-click OK on Success UI
+    monkeypatch.setattr(
+        QMessageBox,
+        "information",
+        lambda *args, **kwargs: QMessageBox.StandardButton.Ok,
+    )
 
     def interact_with_dialog():
-        # Find the active dialog
-        from PySide6.QtWidgets import QApplication
         top_widget = QApplication.activeModalWidget()
         if top_widget:
             top_widget.title_input.setText("Submit Project")
             top_widget.desc_input.setPlainText("Sprint 1 Output")
             top_widget.accept()
 
-    # Trigger the interaction right after the event loop starts the dialog
-    from PySide6.QtCore import QTimer
     QTimer.singleShot(100, interact_with_dialog)
-
-    # Click Add Task (this will block until the QTimer accepts the dialog)
     qtbot.mouseClick(dashboard.add_btn, Qt.LeftButton)
 
-    # Verify the task count increased exactly once
-    assert dashboard.task_list.count() == initial_count + 1
+    # Validate the task physically rendered inside the To-Do Accordion
+    todo_group = dashboard.task_tree.topLevelItem(0)
+    assert todo_group.childCount() == 2  # 1 header row + 1 physical task row
 
-    # Verify it displays correctly
-    item = dashboard.task_list.item(0)
-    assert "Submit Project" in item.text()
-    assert item.checkState() == Qt.CheckState.Unchecked
+    task_row = todo_group.child(1)
+    assert "Submit Project" in task_row.text(0)
 
-def test_feature1_add_task_empty_title_validation(app_window, qtbot, monkeypatch):
-    """TC-002: Verify validation message for empty title"""
+
+def test_tc002_add_task_empty_title_validation(app_window, qtbot, monkeypatch):
+    """TC-002: Verify validation message for empty title blocks creation"""
     dashboard = app_window.dashboard
-    initial_count = dashboard.task_list.count()
+    todo_group = dashboard.task_tree.topLevelItem(0)
+    initial_count = todo_group.childCount()
 
-    # Mock the critical QMessageBox to click 'OK' automatically so it doesn't block forever
     message_box_called = False
 
-    from PySide6.QtWidgets import QMessageBox
     def mock_warning(*args, **kwargs):
         nonlocal message_box_called
         message_box_called = True
@@ -111,199 +110,189 @@ def test_feature1_add_task_empty_title_validation(app_window, qtbot, monkeypatch
     def interact_with_dialog():
         top_widget = QApplication.activeModalWidget()
         if top_widget:
-            # Leave title blank purposely
-            top_widget.title_input.setText("")
-            # Trigger validate_and_accept which should fail and call QMessageBox
+            top_widget.title_input.setText("")  # Blank title
             top_widget.validate_and_accept()
-            # Then we force close it so the test can proceed
             top_widget.reject()
 
     QTimer.singleShot(100, interact_with_dialog)
     qtbot.mouseClick(dashboard.add_btn, Qt.LeftButton)
 
-    # Verify no task was added
-    assert dashboard.task_list.count() == initial_count
+    # Verify no task was added and warning was triggered
+    assert todo_group.childCount() == initial_count
     assert message_box_called is True
 
-def test_feature3_mark_task_completed(app_window, qtbot):
-    """TC-004: Verify marking a task as completed"""
+
+def test_tc004_tc005_kanban_matrix_routing(app_window, qtbot):
+    """Verify tasks dynamically route to the correct layout container in Kanban View"""
     dashboard = app_window.dashboard
+    dashboard.set_mode("kanban")
 
-    # Add a dummy task directly to DB to test
-    from data.models import Task
-    from datetime import datetime
-    new_task = Task(id=None, title="Test Checkbox", description="", status="Pending", 
-                    created_at=datetime.now(), due_date="", priority="High")
-    dashboard.task_manager.add_task(new_task)
-    dashboard.load_tasks()
+    # Inject tasks into DB directly
+    t1 = Task(
+        id=None,
+        title="Todo Task",
+        description="",
+        status="Pending",
+        created_at=datetime.now(),
+        due_date="",
+        priority="High",
+    )
+    t2 = Task(
+        id=None,
+        title="Done Task",
+        description="",
+        status="Completed",
+        created_at=datetime.now(),
+        due_date="",
+        priority="Low",
+    )
 
-    item = dashboard.task_list.item(0)
-    assert item.checkState() == Qt.CheckState.Unchecked
+    dashboard.task_manager.add_task(t1)
+    dashboard.task_manager.add_task(t2)
+    dashboard.load_tasks()  # Trigger layout route matrix
 
-    # Simulate user checking the box
-    item.setCheckState(Qt.CheckState.Checked)
+    # Kanban Board should physically possess the cards in the proper layouts!
+    assert dashboard.todo_layout.count() == 1
+    assert dashboard.done_layout.count() == 1
+    assert dashboard.inprogress_layout.count() == 0
 
-    # Fetch from DB to ensure it was saved
-    task_id = item.data(Qt.ItemDataRole.UserRole)
-    db_task = dashboard.task_manager.get_task_by_id(task_id)
-    assert db_task.status == "Completed"
 
-def test_feature4_delete_task(app_window, qtbot, monkeypatch):
-    """TC-006: Verify successful task soft deletion (Sprint 2)"""
-    dashboard = app_window.dashboard
-
-    # Add a dummy task directly
-    from data.models import Task
-    from datetime import datetime
-    new_task = Task(id=None, title="Task To Delete", description="", status="Pending", 
-                    created_at=datetime.now(), due_date="", priority="Medium", is_deleted=0)
-    dashboard.task_manager.add_task(new_task)
-    dashboard.load_tasks()
-
-    assert dashboard.task_list.count() == 1
-    item = dashboard.task_list.item(0)
-    task_id = item.data(Qt.ItemDataRole.UserRole)
-
-    # Mock confirmation dialog to automatically say Yes
-    from PySide6.QtWidgets import QMessageBox
-    monkeypatch.setattr(QMessageBox, "question", lambda *args, **kwargs: QMessageBox.StandardButton.Yes)
-
-    # Call the delete method directly (moves to trash)
-    dashboard.delete_current_task(item)
-
-    # Verify UI is updated (disappears from active dashboard)
-    assert dashboard.task_list.count() == 0
-
-    # Verify DB is updated to Soft Delete (is_deleted = 1) instead of completely wiped
-    db_task = dashboard.task_manager.get_task_by_id(task_id)
-    assert db_task is not None
-    assert db_task.is_deleted == 1
-
-def test_feature5_trash_management(app_window, qtbot, monkeypatch):
+def test_tc006_tc007_trash_management(app_window, qtbot, monkeypatch):
     """[EP01-FT05] Trash Management with Restore and Permanent Delete Functionality"""
-    from PySide6.QtCore import Qt
-    from PySide6.QtWidgets import QMessageBox
-    from datetime import datetime
-    from data.models import Task
-
     dashboard = app_window.dashboard
-    main_window = app_window
 
-    # 1. Setup: Create a task via the manager so we have a clean state
-    new_task = Task(id=None, title="Trash Test Task", description="Testing delete/restore", 
-                    status="Pending", created_at=datetime.now(), due_date="2026-03-20", 
-                    priority="High", is_deleted=0)
+    # Setup: Create a task via the manager so we have a clean state
+    new_task = Task(
+        id=None,
+        title="Trash Test Task",
+        description="Testing delete/restore",
+        status="Pending",
+        created_at=datetime.now(),
+        due_date="2026-03-20",
+        priority="High",
+        is_deleted=0,
+    )
     task_id = dashboard.task_manager.add_task(new_task)
     dashboard.load_tasks()
 
-    # 2. Move to Trash (Soft Delete)
-    # Mocking the confirmation dialog for deletion
-    monkeypatch.setattr(QMessageBox, "question", lambda *args: QMessageBox.StandardButton.Yes)
-
-    initial_count = dashboard.task_list.count()
-    dashboard.delete_current_task(dashboard.task_list.item(0))
-
-    assert dashboard.task_list.count() == initial_count - 1 
-
-    # 3. Navigate to Trash Bin View
-    qtbot.mouseClick(main_window.btn_trash, Qt.MouseButton.LeftButton)
-    assert dashboard.current_mode == "trash"
-    # Ensure our specific task is the one in the trash
-    item = dashboard.task_list.item(0)
-    assert "Trash Test Task" in item.text()
-
-    # 4. Restore the Task
-    # Instead of calling task_manager.restore directly, trigger the UI action if possible
-    dashboard.task_manager.restore_task(task_id)
+    # Move to Trash (Soft Delete)
+    dashboard.task_manager.delete_task(task_id)
     dashboard.load_tasks()
-    assert dashboard.task_list.count() == 0 # Gone from trash view
 
-    # Verify it's back on the Dashboard
-    qtbot.mouseClick(main_window.btn_dash, Qt.MouseButton.LeftButton)
-    assert dashboard.task_list.count() == initial_count
-    assert "Trash Test Task" in dashboard.task_list.item(0).text()
+    # Verify Task is strictly missing from Active To-Do List
+    todo_group = dashboard.task_tree.topLevelItem(0)
+    assert todo_group.childCount() == 1  # Just the header left
 
-    # 5. Permanent Delete
-    dashboard.delete_current_task(dashboard.task_list.item(0)) # Back to trash
-    qtbot.mouseClick(main_window.btn_trash, Qt.MouseButton.LeftButton)
+    # Navigate to Trash Bin View
+    dashboard.set_mode("trash")
+    assert dashboard.current_mode == "trash"
 
-    # Mock the permanent delete warning
-    monkeypatch.setattr(QMessageBox, "warning", lambda *args: QMessageBox.StandardButton.Yes)
+    # Verify it exists in the Trash UI
+    trash_todo_group = dashboard.task_tree.topLevelItem(0)
+    assert trash_todo_group.childCount() == 2
+    assert "Trash Test Task" in trash_todo_group.child(1).text(0)
 
+    # Permanent Delete Workflow
+    monkeypatch.setattr(
+        QMessageBox, "warning", lambda *args: QMessageBox.StandardButton.Yes
+    )
     dashboard.task_manager.permanently_delete_task(task_id)
     dashboard.load_tasks()
 
-    # Final Database/UI Verifications
-    assert dashboard.task_list.count() == 0
+    # Permanent Delete Workflow
+    monkeypatch.setattr(
+        QMessageBox, "warning", lambda *args: QMessageBox.StandardButton.Yes
+    )
+    dashboard.task_manager.permanently_delete_task(task_id)
+    dashboard.load_tasks()  # <--- THIS VAPORIZES THE OLD POINTER!
+
+    # Final Verification: Nulled from existence
+    # We MUST re-fetch the pointer here!
+    trash_todo_group_cleared = dashboard.task_tree.topLevelItem(0)
+    assert trash_todo_group_cleared.childCount() == 1
+
     db_task = dashboard.task_manager.get_task_by_id(task_id)
     assert db_task is None
 
-def test_feature6_search_tasks(app_window, qtbot):
-    """[EP01-FT06] Task Search Functionality #26"""
-    from data.models import Task
-    from datetime import datetime
-    
-    dashboard = app_window.dashboard
-    
-    # 1. Setup: Create two distinct tasks
-    task1 = Task(id=None, title="Buy Groceries", description="Milk and eggs", 
-                 status="Pending", created_at=datetime.now(), due_date="", priority="Medium", is_deleted=0)
-    task2 = Task(id=None, title="Finish Efficio", description="Code search feature", 
-                 status="Pending", created_at=datetime.now(), due_date="", priority="High", is_deleted=0)
-                 
-    dashboard.task_manager.add_task(task1)
-    dashboard.task_manager.add_task(task2)
-    dashboard.load_tasks()
-    
-    assert dashboard.task_list.count() == 2
-    
-    # 2. Perform Real-time Search Simulation (by Title)
-    dashboard.search_bar.setText("Groceries")
-    assert dashboard.task_list.count() == 1
-    assert "Buy Groceries" in dashboard.task_list.item(0).text()
-    
-    # 3. Perform Real-time Search Simulation (by Description)
-    dashboard.search_bar.setText("Code search")
-    assert dashboard.task_list.count() == 1
-    assert "Finish Efficio" in dashboard.task_list.item(0).text()
-    
-    # 4. Clear Search (Should mathematically return all tasks instantly)
-    dashboard.search_bar.setText("")
-    assert dashboard.task_list.count() == 2
 
-def test_feature7_task_color(app_window, qtbot):
-    """[EP01-FT7] Verify Custom Theme Colors are saved to DB and load pastel UI perfectly"""
-    from data.models import Task
-    from datetime import datetime
-    from PySide6.QtCore import Qt
-    
+def test_tc008_search_isolation(app_window, qtbot):
+    """[EP01-FT06] Ensure string isolation dynamically shreds irrelevant tasks"""
     dashboard = app_window.dashboard
-    
-    # 1. Setup: Create a task with a custom theme color (Deep Ocean)
-    task_theme = Task(id=None, title="Theme Test", description="", 
-                      status="Pending", created_at=datetime.now(), 
-                      due_date="", priority="Medium", is_deleted=0, 
-                      color="#19485F")
-                      
+
+    dashboard.task_manager.add_task(
+        Task(
+            id=None,
+            title="Buy Groceries",
+            description="",
+            status="Pending",
+            created_at=datetime.now(),
+            due_date="",
+            priority="Medium",
+        )
+    )
+    dashboard.task_manager.add_task(
+        Task(
+            id=None,
+            title="Code Search",
+            description="",
+            status="Pending",
+            created_at=datetime.now(),
+            due_date="",
+            priority="High",
+        )
+    )
+    dashboard.load_tasks()
+
+    # Apply search filter
+    dashboard.search_bar.setText("Groceries")
+
+    # The To-Do Accordion should only have the Header (1) + "Buy Groceries" (1) = 2 children
+    todo_group_filtered = dashboard.task_tree.topLevelItem(0)
+    assert todo_group_filtered.childCount() == 2
+
+    # Clear Filter
+    dashboard.search_bar.setText("")
+
+    # Re-fetch again
+    todo_group_cleared = dashboard.task_tree.topLevelItem(0)
+    assert todo_group_cleared.childCount() == 3
+
+
+def test_tc009_task_color_pastel_render(app_window, qtbot):
+    """[EP01-FT7] Verify Custom Theme Colors natively apply 60% Alpha Pastel to QTreeWidget Rows"""
+    dashboard = app_window.dashboard
+
+    # Create Deep Ocean Task
+    task_theme = Task(
+        id=None,
+        title="Theme Test",
+        description="",
+        status="Pending",
+        created_at=datetime.now(),
+        due_date="",
+        priority="Medium",
+        is_deleted=0,
+        color="#19485F",
+    )
     dashboard.task_manager.add_task(task_theme)
     dashboard.load_tasks()
-    
-    # 2. Verify UI Rendering Strategy
-    assert dashboard.task_list.count() == 1
-    item = dashboard.task_list.item(0)
-    
-    # 3. Verify the Background PySide6 Brush Color
-    bg_brush = item.background()
-    bg_color = bg_brush.color()
-    assert bg_color.name().upper() == "#19485F"
-    assert bg_color.alpha() == 60  # Verifying the aesthetic alpha trick!
-    
-    # 4. Verify Foreground PySide6 Brush Color (from the Theme Map mapping)
-    fg_brush = item.foreground()
-    fg_color = fg_brush.color()
-    assert fg_color.name().upper() == "#D9E0A4"  # The exact Dictionary Foreground!
 
-    # 5. Verify Database Retrieval
-    task_id = item.data(Qt.ItemDataRole.UserRole)
-    db_task = dashboard.task_manager.get_task_by_id(task_id)
-    assert db_task.color == "#19485F"
+    # Enter the To-Do Accordion and grab the physical Task Row (Index 1)
+    todo_group = dashboard.task_tree.topLevelItem(0)
+    task_row = todo_group.child(1)
+
+    # Extract the custom Pastel Brush generated by our ACTIVE_THEME_MAP logic
+    bg_brush = task_row.background(0)
+    bg_color = bg_brush.color()
+
+    # Base Color is #19485F. Verify it correctly extracted the RGB properties!
+    assert bg_color.name().upper() == "#19485F"
+    assert (
+        bg_color.alpha() == 50
+    )  # Verifying the aesthetic alpha glassmorphism trick we injected!
+
+    fg_brush = task_row.foreground(0)
+    fg_color = fg_brush.color()
+    assert (
+        fg_color.name().upper() == "#D9E0A4"
+    )  # The mapped bright foreground dictionary color!

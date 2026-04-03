@@ -22,3 +22,4 @@ data/efficio.db
 # OS Generated Files
 .DS_Store
 Thumbs.db
+*.pyc
