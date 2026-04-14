@@ -1,10 +1,15 @@
-
-from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QLabel, QLineEdit,
-    QTextEdit, QComboBox, QDialogButtonBox,
-    QDateEdit, QMessageBox
-)
 from PySide6.QtCore import QDate, Qt
+from PySide6.QtWidgets import (
+    QComboBox,
+    QDateEdit,
+    QDialog,
+    QDialogButtonBox,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QTextEdit,
+    QVBoxLayout,
+)
 
 
 class AddTaskDialog(QDialog):
@@ -84,7 +89,7 @@ class AddTaskDialog(QDialog):
         self.color_combo.addItem("🚨 Hacker Black (Red Text)", "#000001")
         self.color_combo.addItem("📟 Matrix Black (Green Text)", "#000002")
 
-        if task and hasattr(task, 'color') and task.color:
+        if task and hasattr(task, "color") and task.color:
             index = self.color_combo.findData(task.color)
             if index >= 0:
                 self.color_combo.setCurrentIndex(index)
@@ -92,8 +97,7 @@ class AddTaskDialog(QDialog):
 
         # Buttons
         self.button_box = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok
-            | QDialogButtonBox.StandardButton.Cancel
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
         self.button_box.accepted.connect(self.validate_and_accept)
         self.button_box.rejected.connect(self.reject)
@@ -104,6 +108,31 @@ class AddTaskDialog(QDialog):
         if not title:
             QMessageBox.warning(self, "Validation Error", "Title is required!")
             return
+
+        # --- PAST DUE DATE VALIDATION ---
+        selected_date = self.date_input.date()
+        current_date = QDate.currentDate()
+
+        # Check if the currently selected date is in the past
+        if selected_date < current_date:
+            original_date = None
+
+            # Identify if we are editing an existing task, and if so, capture its original date
+            if self.task and self.task.due_date:
+                due_str = str(self.task.due_date).strip()
+                if due_str:
+                    parsed = QDate.fromString(due_str, Qt.DateFormat.ISODate)
+                    if parsed.isValid():
+                        original_date = parsed
+
+            # If it's a NEW task, OR they changed the date to a NEW past date, block the save
+            if not original_date or selected_date != original_date:
+                QMessageBox.warning(
+                    self, "Validation Error", "Due Date cannot be in the past!"
+                )
+                return
+        # --------------------------------
+
         self.accept()
 
     def get_data(self):
@@ -114,5 +143,5 @@ class AddTaskDialog(QDialog):
             "due_date": self.date_input.date().toString(Qt.DateFormat.ISODate),
             "priority": self.priority_input.currentText(),
             "status": self.task.status if self.task else "Pending",
-            "color": self.color_combo.currentData()  # Extract the hidden Hex Code
+            "color": self.color_combo.currentData(),  # Extract the hidden Hex Code
         }
