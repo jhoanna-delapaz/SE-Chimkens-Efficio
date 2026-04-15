@@ -50,19 +50,6 @@ def app_window(qtbot):
         pass
 
 
-def test_tc003_view_dashboard(app_window, qtbot):
-    """TC-003: Verify native QTreeWidget initializes Accordion Groups empty"""
-    dashboard = app_window.dashboard
-    assert dashboard.task_tree is not None
-
-    # Mathematical validation: Top level items are the 3 groups + 2 spacers = 5
-    assert dashboard.task_tree.topLevelItemCount() == 5
-
-    # Extract "To-Do" accordion. It should ONLY have 1 child (the Inline Header row).
-    todo_group = dashboard.task_tree.topLevelItem(0)
-    assert todo_group.childCount() == 1  # 0 user tasks
-
-
 def test_tc001_add_task_success(app_window, qtbot, monkeypatch):
     """TC-001: Verify creation pushes task to QTreeWidget Children"""
     dashboard = app_window.dashboard
@@ -92,34 +79,50 @@ def test_tc001_add_task_success(app_window, qtbot, monkeypatch):
     assert "Submit Project" in task_row.text(0)
 
 
-def test_tc002_add_task_empty_title_validation(app_window, qtbot, monkeypatch):
+def test_tc002_add_task_empty_title_validation(app_window, qtbot):
     """TC-002: Verify validation message for empty title blocks creation"""
     dashboard = app_window.dashboard
     todo_group = dashboard.task_tree.topLevelItem(0)
     initial_count = todo_group.childCount()
 
-    message_box_called = False
-
-    def mock_warning(*args, **kwargs):
-        nonlocal message_box_called
-        message_box_called = True
-        return QMessageBox.StandardButton.Ok
-
-    monkeypatch.setattr(QMessageBox, "warning", mock_warning)
+    # Track if our Custom Toast Overlay successfully spawns
+    toast_activated = False
 
     def interact_with_dialog():
+        nonlocal toast_activated
         top_widget = QApplication.activeModalWidget()
         if top_widget:
             top_widget.title_input.setText("")  # Blank title
             top_widget.validate_and_accept()
+
+            # Look for the internal PySide6 Toast widget instead of a MessageBox
+            if (
+                top_widget.toast.isVisible()
+                and top_widget.toast.text() == "Title is required!"
+            ):
+                toast_activated = True
+
             top_widget.reject()
 
     QTimer.singleShot(100, interact_with_dialog)
     qtbot.mouseClick(dashboard.add_btn, Qt.LeftButton)
 
-    # Verify no task was added and warning was triggered
+    # Verify no task was added and the toast successfully fired
     assert todo_group.childCount() == initial_count
-    assert message_box_called is True
+    assert toast_activated is True
+
+
+def test_tc003_view_dashboard(app_window, qtbot):
+    """TC-003: Verify native QTreeWidget initializes Accordion Groups empty"""
+    dashboard = app_window.dashboard
+    assert dashboard.task_tree is not None
+
+    # Mathematical validation: Top level items are the 3 groups + 2 spacers = 5
+    assert dashboard.task_tree.topLevelItemCount() == 5
+
+    # Extract "To-Do" accordion. It should ONLY have 1 child (the Inline Header row).
+    todo_group = dashboard.task_tree.topLevelItem(0)
+    assert todo_group.childCount() == 1  # 0 user tasks
 
 
 def test_tc004_tc005_kanban_matrix_routing(app_window, qtbot):
@@ -296,3 +299,114 @@ def test_tc009_task_color_pastel_render(app_window, qtbot):
     assert (
         fg_color.name().upper() == "#D9E0A4"
     )  # The mapped bright foreground dictionary color!
+
+
+def test_tc010_past_due_date_validation(app_window, qtbot):
+    """TC-010: Task Due Date Validation (Past Date)"""
+    from PySide6.QtCore import QDate, QTimer
+    from PySide6.QtWidgets import QApplication
+
+    dashboard = app_window.dashboard
+    todo_group = dashboard.task_tree.topLevelItem(0)
+    initial_count = todo_group.childCount()
+
+    toast_activated = False
+
+    def interact_with_dialog():
+        nonlocal toast_activated
+        top_widget = QApplication.activeModalWidget()
+        if top_widget:
+            # Set Title
+            top_widget.title_input.setText("Past Date Task")
+            # Set Due Date to yesterday
+            past_date = QDate.currentDate().addDays(-1)
+            top_widget.date_input.setDate(past_date)
+
+            top_widget.validate_and_accept()
+
+            if (
+                top_widget.toast.isVisible()
+                and top_widget.toast.text() == "Due Date cannot be in the past!"
+            ):
+                toast_activated = True
+
+            top_widget.reject()
+
+    QTimer.singleShot(100, interact_with_dialog)
+    qtbot.mouseClick(dashboard.add_btn, Qt.LeftButton)
+
+    assert todo_group.childCount() == initial_count
+    assert toast_activated is True
+
+
+def test_tc011_task_priority_selection(app_window, qtbot, monkeypatch):
+    """TC-011: Task Priority Management correctly saves"""
+    from PySide6.QtCore import Qt, QTimer
+    from PySide6.QtWidgets import QApplication, QMessageBox
+
+    # Auto-click OK on Success UI
+    monkeypatch.setattr(
+        QMessageBox,
+        "information",
+        lambda *args, **kwargs: QMessageBox.StandardButton.Ok,
+    )
+
+    dashboard = app_window.dashboard
+    todo_group = dashboard.task_tree.topLevelItem(0)
+
+    def interact_with_dialog():
+        top_widget = QApplication.activeModalWidget()
+        if top_widget:
+            top_widget.title_input.setText("Critical Task")
+            # Set priority to "Critical"
+            index = top_widget.priority_input.findText("Critical")
+            if index >= 0:
+                top_widget.priority_input.setCurrentIndex(index)
+
+            top_widget.accept()  # Bypass validation just for saving test
+
+    QTimer.singleShot(100, interact_with_dialog)
+    qtbot.mouseClick(dashboard.add_btn, Qt.LeftButton)
+
+    # Validate the task physically rendered
+    todo_group = dashboard.task_tree.topLevelItem(
+        0
+    )  # Re-fetch because load_tasks() destroys old tree
+    assert todo_group.childCount() == 2
+
+    # Priority is in column 2, let's just fetch from DB to be scientifically accurate
+    tasks = dashboard.task_manager.get_all_tasks()
+    critical_task = None
+    for t in tasks:
+        if t.title == "Critical Task":
+            critical_task = t
+            break
+
+    assert critical_task is not None
+    assert critical_task.priority == "Critical"
+
+
+def test_tc012_toast_visibility_engine(app_window, qtbot):
+    """TC-012: Ensure physics engine uses the premium OutBack bounce."""
+    from PySide6.QtCore import QEasingCurve, Qt, QTimer
+    from PySide6.QtWidgets import QApplication
+
+    dashboard = app_window.dashboard
+
+    def interact_with_dialog():
+        top_widget = QApplication.activeModalWidget()
+        if top_widget:
+            # Verify the Toast component is loaded
+            assert hasattr(top_widget, "toast")
+
+            # Fire a fake error
+            top_widget.toast.show_toast("Fake Error", 100)
+
+            # Extract internal physics
+            curve = top_widget.toast.anim.easingCurve()
+            assert curve.type() == QEasingCurve.Type.OutBack
+
+            top_widget.reject()
+
+    QTimer.singleShot(100, interact_with_dialog)
+    qtbot.mouseClick(dashboard.add_btn, Qt.LeftButton)

@@ -28,7 +28,7 @@ from PySide6.QtWidgets import (
 
 from business.task_manager import TaskManager
 from data.models import Task
-from presentation.add_task_dialog import AddTaskDialog
+from presentation.task_editor_dialog import TaskEditorDialog
 
 try:
     from config import get_default_db_path
@@ -934,7 +934,7 @@ class DashboardInterface(QWidget):
 
     def edit_specific_task(self, task_id):
         """
-        Instantiates the AddTaskDialog in 'Edit' mode and synchronizes database updates.
+        Instantiates the TaskEditorDialog in 'Edit' mode and synchronizes database updates.
 
         Args:
             task_id (int): The unique primary key of the target task to modify.
@@ -943,7 +943,7 @@ class DashboardInterface(QWidget):
         # We abstracted this so the Kanban card can call it without relying on a QListWidgetItem
         task = self.task_manager.get_task_by_id(task_id)
         if task:
-            dialog = AddTaskDialog(self, task=task)
+            dialog = TaskEditorDialog(self, task=task)
             if dialog.exec():
                 data = dialog.get_data()
                 updated_task = Task(
@@ -981,7 +981,7 @@ class DashboardInterface(QWidget):
         Opens the dialog to create a new task. Provides a success notification
         upon successfully saving the task to the database.
         """
-        dialog = AddTaskDialog(self)
+        dialog = TaskEditorDialog(self)
         if dialog.exec():
             data = dialog.get_data()
 
@@ -1087,7 +1087,7 @@ class DashboardInterface(QWidget):
             # Fetch existing task data
             task = self.task_manager.get_task_by_id(task_id)
             if task:
-                dialog = AddTaskDialog(self, task=task)
+                dialog = TaskEditorDialog(self, task=task)
                 if dialog.exec():
                     data = dialog.get_data()
 
