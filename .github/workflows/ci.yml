@@ -73,6 +73,11 @@ jobs:
           exit 1
         fi
 
+    - name: Enforce Code Quality (Ruff)
+      run: |
+        ruff format --check .
+        ruff check .
+
     - name: Run Automated UI Tests
       env:
         QT_QPA_PLATFORM: xcb

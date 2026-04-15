@@ -23,3 +23,4 @@ data/efficio.db
 .DS_Store
 Thumbs.db
 *.pyc
+.ruff_cache
