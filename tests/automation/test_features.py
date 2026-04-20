@@ -601,3 +601,228 @@ def test_tc017_banner_hides_when_no_urgent_tasks(app_window, qtbot):
 
     # Banner must auto-hide
     assert not dashboard.urgent_banner_btn.isVisible()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# EP02: Task Productivity Analytics Dashboard
+# TC-018 → TC-023
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_tc018_analytics_widget_exists(app_window, qtbot):
+    """[EP02] TC-018: AnalyticsWidget instantiates cleanly and is wired into dashboard."""
+    from presentation.analytics_widget import AnalyticsWidget
+
+    dashboard = app_window.dashboard
+
+    # The widget must be attached to the dashboard and be a proper AnalyticsWidget
+    assert hasattr(dashboard, "analytics_widget")
+    assert isinstance(dashboard.analytics_widget, AnalyticsWidget)
+
+    # Confirm the inner scroll content area exists (structural integrity check)
+    assert hasattr(dashboard.analytics_widget, "_inner_layout")
+
+
+def test_tc019_analytics_empty_state(app_window, qtbot):
+    """[EP02] TC-019: With zero tasks the empty-state label is shown."""
+    dashboard = app_window.dashboard
+
+    # No tasks were added — ensure stats are all zero
+    stats = dashboard.task_manager.get_task_stats()
+    assert stats["total"] == 0
+    assert stats["Pending"] == 0
+    assert stats["Completed"] == 0
+    assert stats["overdue"] == 0
+
+    # Empty-state label must be present inside the donut container
+    donut_container = dashboard.analytics_widget._donut_container
+    labels = [
+        donut_container.layout().itemAt(i).widget()
+        for i in range(donut_container.layout().count())
+        if donut_container.layout().itemAt(i).widget() is not None
+    ]
+    empty_labels = [
+        w
+        for w in labels
+        if getattr(w, "objectName", lambda: "")() == "empty_state_label"
+    ]
+    assert len(empty_labels) == 1
+
+
+def test_tc020_analytics_counts_match_db(app_window, qtbot):
+    """[EP02] TC-020: Stats dict accurately reflects task records in the database."""
+    from datetime import datetime
+
+    dashboard = app_window.dashboard
+
+    dashboard.task_manager.add_task(
+        Task(
+            id=None,
+            title="P1",
+            description="",
+            status="Pending",
+            created_at=datetime.now(),
+            due_date="",
+            priority="Medium",
+            is_deleted=0,
+        )
+    )
+    dashboard.task_manager.add_task(
+        Task(
+            id=None,
+            title="P2",
+            description="",
+            status="Pending",
+            created_at=datetime.now(),
+            due_date="",
+            priority="High",
+            is_deleted=0,
+        )
+    )
+    dashboard.task_manager.add_task(
+        Task(
+            id=None,
+            title="C1",
+            description="",
+            status="Completed",
+            created_at=datetime.now(),
+            due_date="",
+            priority="Low",
+            is_deleted=0,
+        )
+    )
+
+    stats = dashboard.task_manager.get_task_stats()
+
+    assert stats["total"] == 3
+    assert stats["Pending"] == 2
+    assert stats["Completed"] == 1
+    assert stats["In Progress"] == 0
+
+
+def test_tc021_analytics_priority_distribution(app_window, qtbot):
+    """[EP02] TC-021: Priority aggregation in stats matches tasks added per level."""
+    from datetime import datetime
+
+    dashboard = app_window.dashboard
+
+    dashboard.task_manager.add_task(
+        Task(
+            id=None,
+            title="Low Task",
+            description="",
+            status="Pending",
+            created_at=datetime.now(),
+            due_date="",
+            priority="Low",
+            is_deleted=0,
+        )
+    )
+    dashboard.task_manager.add_task(
+        Task(
+            id=None,
+            title="Low Task 2",
+            description="",
+            status="Pending",
+            created_at=datetime.now(),
+            due_date="",
+            priority="Low",
+            is_deleted=0,
+        )
+    )
+    dashboard.task_manager.add_task(
+        Task(
+            id=None,
+            title="High Task",
+            description="",
+            status="Pending",
+            created_at=datetime.now(),
+            due_date="",
+            priority="High",
+            is_deleted=0,
+        )
+    )
+
+    stats = dashboard.task_manager.get_task_stats()
+
+    assert stats["Low"] == 2
+    assert stats["High"] == 1
+    assert stats["Medium"] == 0
+    assert stats["Critical"] == 0
+
+
+def test_tc022_analytics_overdue_chip_fires(app_window, qtbot):
+    """[EP02] TC-022: A task with a past due date increments the overdue counter."""
+    from datetime import datetime
+
+    from PySide6.QtCore import QDate
+
+    dashboard = app_window.dashboard
+
+    past_date = QDate.currentDate().addDays(-3).toString("yyyy-MM-dd")
+    dashboard.task_manager.add_task(
+        Task(
+            id=None,
+            title="Overdue Task",
+            description="",
+            status="Pending",
+            created_at=datetime.now(),
+            due_date=past_date,
+            priority="High",
+            is_deleted=0,
+        )
+    )
+
+    stats = dashboard.task_manager.get_task_stats()
+    assert stats["overdue"] == 1
+
+    # Refresh the widget and verify the overdue chip renders the warning text
+    dashboard.analytics_widget.refresh(dashboard.task_manager)
+    overdue_container = dashboard.analytics_widget._overdue_container
+    widgets = [
+        overdue_container.layout().itemAt(i).widget()
+        for i in range(overdue_container.layout().count())
+        if overdue_container.layout().itemAt(i).widget() is not None
+    ]
+    chip = next(
+        (
+            w
+            for w in widgets
+            if getattr(w, "objectName", lambda: "")() == "overdue_chip"
+        ),
+        None,
+    )
+    assert chip is not None
+    assert "overdue" in chip.text()
+
+
+def test_tc023_analytics_refreshes_on_status_change(app_window, qtbot):
+    """[EP02] TC-023: Completing a task updates the analytics stats correctly."""
+    from datetime import datetime
+
+    dashboard = app_window.dashboard
+
+    task_id = dashboard.task_manager.add_task(
+        Task(
+            id=None,
+            title="In Progress Task",
+            description="",
+            status="In Progress",
+            created_at=datetime.now(),
+            due_date="",
+            priority="Medium",
+            is_deleted=0,
+        )
+    )
+
+    stats_before = dashboard.task_manager.get_task_stats()
+    assert stats_before["In Progress"] == 1
+    assert stats_before["Completed"] == 0
+
+    # Simulate user completing the task (e.g. via right-click context menu)
+    dashboard.task_manager.update_task_status(task_id, "Completed")
+    dashboard.load_tasks()  # triggers analytics_widget.refresh() internally
+
+    stats_after = dashboard.task_manager.get_task_stats()
+    assert stats_after["In Progress"] == 0
+    assert stats_after["Completed"] == 1
