@@ -1,8 +1,8 @@
 import os
 from datetime import datetime
-from textwrap import dedent
 
 from PySide6.QtCore import (
+    QDate,
     QSize,
     Qt,
 )
@@ -119,12 +119,33 @@ class KanbanCard(QFrame):
                     shattered.append(w)
             return " ".join(shattered)
 
+        # --------- URGENCY BORDER OVERRIDE ---------
+        from PySide6.QtCore import QDate
+
+        def is_task_urgent(t):
+            if t.status == "Completed":
+                return False
+            if not t.due_date:
+                return False
+            parsed_date = QDate.fromString(
+                str(t.due_date).strip(), Qt.DateFormat.ISODate
+            )
+            if not parsed_date.isValid():
+                return False
+            return QDate.currentDate().daysTo(parsed_date) <= 2
+
+        border_css = (
+            "border-left: 5px solid #FF4D4D;"
+            if is_task_urgent(task)
+            else "border: 1px solid rgba(255,255,255,0.2);"
+        )
+
         # Build the physical card styling
         self.setStyleSheet(f"""
             QFrame {{
                 background-color: {bg_css};
                 border-radius: 12px;
-                border: 1px solid rgba(255,255,255,0.2);
+                {border_css}
             }}
             QLabel {{
                 color: {fg_hex};
@@ -407,6 +428,34 @@ class DashboardInterface(QWidget):
         task_section_layout.addLayout(header_layout)
         task_section_layout.addSpacing(1)
 
+        # --------- URGENCY BANNER INJECTION ---------
+        self.urgent_banner_btn = QPushButton()
+        self.urgent_banner_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #FF4D4D;
+                color: white;
+                font-weight: bold;
+                font-size: 14px;
+                border-radius: 8px;
+                padding: 10px;
+                margin-top: 5px;
+                margin-bottom: 5px;
+            }
+            QPushButton:hover { background-color: #CC0000; }
+        """)
+        self.urgent_banner_btn.hide()
+
+        # Acts as a toggle.
+        def toggle_urgency_filter():
+            if self.search_bar.text() == "is:urgent":
+                self.search_bar.setText("")
+            else:
+                self.search_bar.setText("is:urgent")
+
+        self.urgent_banner_btn.clicked.connect(toggle_urgency_filter)
+        task_section_layout.addWidget(self.urgent_banner_btn)
+        # ---------------------------------------------
+
         task_card = QFrame()
         task_card.setStyleSheet("""QFrame {
         background-color: rgba(0,0,0,0.5);
@@ -575,6 +624,35 @@ class DashboardInterface(QWidget):
 
         kanban_page_layout.addLayout(kanban_header)
 
+        # --------- URGENCY BANNER INJECTION (KANBAN) ---------
+        self.kanban_urgent_banner = QPushButton()
+        self.kanban_urgent_banner.setStyleSheet("""
+            QPushButton {
+                background-color: #FF4D4D;
+                color: white;
+                font-weight: bold;
+                font-size: 14px;
+                border-radius: 8px;
+                padding: 10px;
+                margin-top: 5px;
+                margin-bottom: 5px;
+                margin-left: 15px;
+                margin-right: 15px;
+            }
+            QPushButton:hover { background-color: #CC0000; }
+        """)
+        self.kanban_urgent_banner.hide()
+
+        def toggle_kanban_urgency():
+            if self.kanban_search_bar.text() == "is:urgent":
+                self.kanban_search_bar.setText("")
+            else:
+                self.kanban_search_bar.setText("is:urgent")
+
+        self.kanban_urgent_banner.clicked.connect(toggle_kanban_urgency)
+        kanban_page_layout.addWidget(self.kanban_urgent_banner)
+        # ---------------------------------------------------
+
         # Transferring scroll matrix into Page 2
         kanban_scroll_matrix = QScrollArea()
         kanban_scroll_matrix.setWidgetResizable(True)
@@ -714,13 +792,65 @@ class DashboardInterface(QWidget):
         elif hasattr(self, "search_bar"):
             query = self.search_bar.text()
 
+        # Prevent SQLite from trying to literally search for "is:urgent" in the Title
+        db_query = "" if query == "is:urgent" else query
+
         # 3. Pull from standard DB or Trash DB
         if self.current_mode == "trash":
-            tasks = self.task_manager.get_deleted_tasks(query)
+            tasks = self.task_manager.get_deleted_tasks(db_query)
         else:
-            tasks = self.task_manager.get_all_tasks(query)
+            tasks = self.task_manager.get_all_tasks(db_query)
 
-        # 4. Spatially route cards to the correct SPA View Matrix!
+        # --------- CORE URGENCY ALGORITHM ---------
+        def is_task_urgent(t):
+            if t.status == "Completed":
+                return False
+            if not t.due_date:
+                return False
+            parsed_date = QDate.fromString(
+                str(t.due_date).strip(), Qt.DateFormat.ISODate
+            )
+            if not parsed_date.isValid():
+                return False
+            days_to_due = QDate.currentDate().daysTo(parsed_date)
+            return (
+                days_to_due <= 2
+            )  # Anything overdue or within 48 hours is considered an emergency
+
+        # Intercept the database pull and artificially slice it if the banner was clicked
+        if query == "is:urgent":
+            tasks = [t for t in tasks if is_task_urgent(t)]
+
+        urgent_count = sum(1 for t in tasks if is_task_urgent(t))
+
+        # Dynamic Banner Scaling
+        if urgent_count > 0:
+            banner_text = (
+                f"⚠️ Viewing {urgent_count} Urgent Tasks! (Click here to close filter)"
+                if query == "is:urgent"
+                else f"⚠️ {urgent_count} Tasks require immediate attention! Click to Focus."
+            )
+
+            self.urgent_banner_btn.setText(banner_text)
+            self.urgent_banner_btn.show()
+
+            if hasattr(self, "kanban_urgent_banner"):
+                self.kanban_urgent_banner.setText(banner_text)
+                self.kanban_urgent_banner.show()
+        else:
+            self.urgent_banner_btn.hide()
+            if hasattr(self, "kanban_urgent_banner"):
+                self.kanban_urgent_banner.hide()
+
+            # If they just finished marking the last urgent task Completed, clear the filter so we don't stare at an empty grid
+            if query == "is:urgent":
+                if hasattr(self, "search_bar"):
+                    self.search_bar.setText("")
+                if hasattr(self, "kanban_search_bar"):
+                    self.kanban_search_bar.setText("")
+        # ------------------------------------------
+
+        # 4. Spatially route cards to the correct SPA View Matrix
         if self.current_mode == "kanban":
             for task in tasks:
                 card = KanbanCard(task, self)
@@ -783,7 +913,7 @@ class DashboardInterface(QWidget):
                     inline_header.setBackground(
                         col, QColor(15, 20, 25, 80)
                     )  # Subtle shadow row
-                    inline_header.setFont(col, inline_font)  # Applies the bigger font!
+                    inline_header.setFont(col, inline_font)  # Applies the bigger font
 
                 inline_header.setTextAlignment(
                     2, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
@@ -801,9 +931,9 @@ class DashboardInterface(QWidget):
                 # 3. Build the Raw Text Row
                 row_item = QTreeWidgetItem(
                     [
-                        task.title,
+                        "",
                         task.due_date if task.due_date else "--",
-                        "",  # Blank for badge
+                        "",
                     ]
                 )
                 row_item.setSizeHint(0, QSize(0, 32))
@@ -824,42 +954,67 @@ class DashboardInterface(QWidget):
                 for col in range(3):
                     row_item.setBackground(col, pastel)
 
-                row_item.setForeground(0, QColor(fg_hex))
                 row_item.setForeground(1, QColor(fg_hex))
                 row_item.setTextAlignment(
                     1, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
                 )
 
+                # --------- LEFT BORDER INJECTION ---------
+                urgent = is_task_urgent(task)
+                if urgent:
+                    row_item.setForeground(
+                        1, QColor("#FF4D4D")
+                    )  # The Date Text explicitly turns RED
+
+                cell_container = QWidget()
+                cell_container.setStyleSheet(
+                    "background: transparent; border: none; margin: 0px; padding: 0px;"
+                )
+                cell_layout = QHBoxLayout(cell_container)
+                cell_layout.setContentsMargins(0, 0, 0, 0)
+                cell_layout.setSpacing(6)
+
+                if urgent:
+                    left_indicator = QFrame()
+                    left_indicator.setFixedSize(4, 20)
+                    left_indicator.setStyleSheet(
+                        "background-color: #FF4D4D; border-radius: 2px; border: none;"
+                    )
+                    cell_layout.addWidget(left_indicator)
+                else:
+                    # Inject an invisible bounding box to force equal indentation and prevent wall-kissing
+                    spacer = QFrame()
+                    spacer.setFixedSize(4, 20)
+                    spacer.setStyleSheet("background: transparent; border: none;")
+                    cell_layout.addWidget(spacer)
+
+                title_lbl = QLabel(task.title)
+                title_lbl.setStyleSheet(
+                    f"color: {fg_hex}; font-size: 13px; background: transparent;"
+                )
+                cell_layout.addWidget(title_lbl, stretch=1)
+
                 parent_grp.addChild(row_item)
 
-                # 4. Inject Priority Badge on the FAR RIGHT Corner
+                # Binds the physical QWidget drawing right into Column 0
+                self.task_tree.setItemWidget(row_item, 0, cell_container)
+
+                # --------- RESTORED: Inject Priority Badge on the FAR RIGHT Corner ---------
                 badge = QLabel(task.priority)
                 badge.setFixedSize(70, 20)  # Locks badge to perfect pill proportions
                 badge.setStyleSheet(
-                    dedent(f"""
-                    background-color: {bg_hex};
-                    color: {fg_hex};
-                    border-radius: 4px;
-                    padding: 2px 0px;
-                    font-size: 11px;
-                    font-weight: bold;
-                    border: none;
-                """).strip()
+                    f"background-color: {bg_hex}; color: {fg_hex}; border-radius: 4px; padding: 2px 0px; font-size: 11px; font-weight: bold; border: none;"
                 )
                 badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-                # THE SPACER ENGINE: Pushes the badge to the right edge without crushing text
-
                 badge_container = QWidget()
                 badge_layout = QHBoxLayout(badge_container)
-                badge_layout.setContentsMargins(
-                    0, 0, 5, 0
-                )  # 5px padding from the absolute right window edge
-
-                badge_layout.addStretch()  # Pushes the priority badge to the trailing edge
+                badge_layout.setContentsMargins(0, 0, 5, 0)
+                badge_layout.addStretch()
                 badge_layout.addWidget(badge)
 
                 self.task_tree.setItemWidget(row_item, 2, badge_container)
+                # -------------------------------------------------------------------------
 
     def show_kanban_context_menu(self, task, global_pos):
         """
@@ -920,7 +1075,7 @@ class DashboardInterface(QWidget):
         """
         item = self.task_tree.itemAt(pos)
 
-        # Prevent right-clicking empty space OR Accordion Headers!
+        # Prevent right-clicking empty space OR Accordion Headers
         if item is None or item.parent() is None:
             return
 
