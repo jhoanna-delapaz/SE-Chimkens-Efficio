@@ -1,18 +1,19 @@
-from PySide6.QtCore import QDate, Qt
+from PySide6.QtCore import QDate, QEasingCurve, QPoint, QPropertyAnimation, Qt, QTimer
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QComboBox,
     QDateEdit,
     QDialog,
     QDialogButtonBox,
+    QGraphicsDropShadowEffect,
     QLabel,
     QLineEdit,
-    QMessageBox,
     QTextEdit,
     QVBoxLayout,
 )
 
 
-class AddTaskDialog(QDialog):
+class TaskEditorDialog(QDialog):
     def __init__(self, parent=None, task=None):
         super().__init__(parent)
         self.setWindowTitle("Edit Task" if task else "Add New Task")
@@ -20,6 +21,9 @@ class AddTaskDialog(QDialog):
         self.task = task
 
         layout = QVBoxLayout(self)
+
+        # Initialize floating toast (does not get added to layout)
+        self.toast = ToastNotification(self)
 
         # Title
         layout.addWidget(QLabel("Title (Required):"))
@@ -105,8 +109,9 @@ class AddTaskDialog(QDialog):
 
     def validate_and_accept(self):
         title = self.title_input.text().strip()
+
         if not title:
-            QMessageBox.warning(self, "Validation Error", "Title is required!")
+            self.toast.show_toast("Title is required!")
             return
 
         # --- PAST DUE DATE VALIDATION ---
@@ -127,9 +132,7 @@ class AddTaskDialog(QDialog):
 
             # If it's a NEW task, OR they changed the date to a NEW past date, block the save
             if not original_date or selected_date != original_date:
-                QMessageBox.warning(
-                    self, "Validation Error", "Due Date cannot be in the past!"
-                )
+                self.toast.show_toast("Due Date cannot be in the past!")
                 return
         # --------------------------------
 
@@ -145,3 +148,68 @@ class AddTaskDialog(QDialog):
             "status": self.task.status if self.task else "Pending",
             "color": self.color_combo.currentData(),  # Extract the hidden Hex Code
         }
+
+
+class ToastNotification(QLabel):
+    """A floating, animated notification overlay."""
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.setStyleSheet("""
+            QLabel {
+                background-color: #2F3239;
+                color: #FFFFFF;
+                font-size: 13px;
+                font-weight: bold;
+                padding: 10px 20px;
+                border: 1px solid #4a4a4a;
+                border-radius: 8px;
+            }
+        """)
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.hide()
+
+        # Premium Shadow Hook
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(15)
+        shadow.setColor(QColor(0, 0, 0, 150))
+        shadow.setOffset(0, 4)
+        self.setGraphicsEffect(shadow)
+
+    def show_toast(self, message, duration_ms=3000):
+        self.setText(message)
+        self.adjustSize()
+
+        # Mathematical absolute positioning (Top-Center)
+        parent_rect = self.parent().rect()
+        target_x = (parent_rect.width() - self.width()) // 2
+        target_y = 20  # Hovering 20px down from the roof
+        start_y = -self.height() - 20  # Offscreen
+
+        self.setGeometry(target_x, start_y, self.width(), self.height())
+        self.show()
+        self.raise_()
+
+        # Slide Down Animation Engine
+        self.anim = QPropertyAnimation(self, b"pos")
+        self.anim.setDuration(400)
+        self.anim.setStartValue(QPoint(target_x, start_y))
+        self.anim.setEndValue(QPoint(target_x, target_y))
+        self.anim.setEasingCurve(QEasingCurve.OutBack)  # Bouncy effect!
+        self.anim.start()
+
+        # Start timer to auto-hide
+        QTimer.singleShot(duration_ms, self.hide_toast)
+
+    def hide_toast(self):
+        # Slide Up Animation
+        target_x = self.x()
+        end_y = -self.height() - 20
+
+        self.anim = QPropertyAnimation(self, b"pos")
+        self.anim.setDuration(300)
+        self.anim.setStartValue(self.pos())
+        self.anim.setEndValue(QPoint(target_x, end_y))
+        self.anim.setEasingCurve(QEasingCurve.InBack)
+        self.anim.finished.connect(self.hide)
+        self.anim.start()

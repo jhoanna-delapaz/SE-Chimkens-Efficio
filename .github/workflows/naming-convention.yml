@@ -22,6 +22,12 @@ jobs:
 
             for (const commit of commits) {
               const message = commit.message.split('\n')[0]; // Only check the subject line
+              
+              // Whitelist Git ecosystem-generated commits from the strict checks
+              if (message.startsWith("Merge ") || message.startsWith("Revert ") || message.startsWith("Squashed ") || message.startsWith("Squash ")) {
+                continue;
+              }
+
               if (!pattern.test(message)) {
                 core.setFailed(`
             Invalid commit message: "${message}"
