@@ -931,9 +931,9 @@ class DashboardInterface(QWidget):
                 # 3. Build the Raw Text Row
                 row_item = QTreeWidgetItem(
                     [
-                        "",
+                        task.title,
                         task.due_date if task.due_date else "--",
-                        "",
+                        task.priority,
                     ]
                 )
                 row_item.setSizeHint(0, QSize(0, 32))
@@ -953,8 +953,8 @@ class DashboardInterface(QWidget):
 
                 for col in range(3):
                     row_item.setBackground(col, pastel)
+                    row_item.setForeground(col, QColor(fg_hex))
 
-                row_item.setForeground(1, QColor(fg_hex))
                 row_item.setTextAlignment(
                     1, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
                 )
