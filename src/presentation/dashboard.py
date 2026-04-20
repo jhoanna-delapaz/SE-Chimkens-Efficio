@@ -563,9 +563,8 @@ class DashboardInterface(QWidget):
 
         self.analytics_widget = AnalyticsWidget()
 
-        right_panel_layout.addWidget(calendar_card)
-        right_panel_layout.addWidget(self.analytics_widget)
-        right_panel_layout.addStretch()
+        right_panel_layout.addWidget(calendar_card, stretch=0)
+        right_panel_layout.addWidget(self.analytics_widget, stretch=1)
 
         dash_main_layout.addLayout(task_section_layout, 3)
         dash_main_layout.addLayout(right_panel_layout, 2)

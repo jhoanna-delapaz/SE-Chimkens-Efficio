@@ -89,8 +89,8 @@ class AnalyticsWidget(QWidget):
         card = QFrame()
         card.setStyleSheet(_CARD_STYLE)
         card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(14, 14, 14, 14)
-        card_layout.setSpacing(12)
+        card_layout.setContentsMargins(12, 12, 12, 12)
+        card_layout.setSpacing(8)
 
         # Panel title
         title = QLabel("📊  Performance")
@@ -113,7 +113,7 @@ class AnalyticsWidget(QWidget):
         self._inner.setStyleSheet("background: transparent;")
         self._inner_layout = QVBoxLayout(self._inner)
         self._inner_layout.setContentsMargins(0, 0, 0, 0)
-        self._inner_layout.setSpacing(14)
+        self._inner_layout.setSpacing(10)
 
         scroll.setWidget(self._inner)
         card_layout.addWidget(scroll)
@@ -163,8 +163,9 @@ class AnalyticsWidget(QWidget):
         """Render the QPieSeries donut chart into the donut container.
 
         Creates one pie slice per status (Pending / In Progress / Completed)
-        using glassmorphism-alpha fill colours from the ACTIVE_THEME_MAP
-        palette. Slices with zero count are omitted to keep the chart clean.
+        using glassmorphism-alpha fill colours. Slice labels are hidden to
+        prevent asymmetric outside-label clipping; instead a compact inline
+        legend row with coloured dots is rendered below the chart.
 
         Args:
             stats: Aggregate dict from ``TaskManager.get_task_stats()``.
@@ -176,19 +177,17 @@ class AnalyticsWidget(QWidget):
         layout.addWidget(lbl)
 
         series = QPieSeries()
-        series.setHoleSize(0.55)
+        series.setHoleSize(0.58)
+        series.setPieSize(0.80)
 
         for status, (bg_hex, _label_hex) in _STATUS_COLOURS.items():
             count = stats.get(status, 0)
-            if count == 0:
-                continue
-            slc = series.append(f"{status}  {count}", count)
+            slc = series.append("", count if count > 0 else 0)
             colour = QColor(bg_hex)
-            colour.setAlpha(180)
+            colour.setAlpha(200)
             slc.setBrush(colour)
-            slc.setLabelColor(QColor("white"))
-            slc.setLabelVisible(True)
-            slc.setLabelPosition(QPieSlice.LabelPosition.LabelOutside)
+            slc.setPen(QColor(0, 0, 0, 0))  # Remove slice border gaps
+            slc.setLabelVisible(False)  # Labels replaced by custom legend row
 
         chart = QChart()
         chart.addSeries(series)
@@ -201,9 +200,45 @@ class AnalyticsWidget(QWidget):
         view = QChartView(chart)
         view.setRenderHint(QPainter.RenderHint.Antialiasing)
         view.setStyleSheet("background: transparent; border: none;")
-        view.setFixedHeight(180)
-
+        view.setFixedHeight(150)
         layout.addWidget(view)
+
+        # Custom inline legend: ● Pending 3  ● In Progress 1  ● Done 5
+        legend_row = QHBoxLayout()
+        legend_row.setSpacing(0)
+        legend_row.setContentsMargins(0, 0, 0, 0)
+
+        for status, (bg_hex, _label_hex) in _STATUS_COLOURS.items():
+            count = stats.get(status, 0)
+            short = "Done" if status == "Completed" else status
+
+            dot = QLabel("●")
+            dot.setStyleSheet(
+                f"color: {bg_hex}; font-size: 14px; background: transparent;"
+            )
+            dot.setFixedWidth(18)
+
+            name_count = QLabel(f"{short}  {count}")
+            name_count.setStyleSheet(
+                "color: rgba(255,255,255,0.80); font-size: 10px; background: transparent;"
+            )
+
+            cell = QHBoxLayout()
+            cell.setSpacing(2)
+            cell.setContentsMargins(0, 0, 0, 0)
+            cell.addWidget(dot)
+            cell.addWidget(name_count)
+            cell.addStretch()
+
+            cell_w = QWidget()
+            cell_w.setStyleSheet("background: transparent;")
+            cell_w.setLayout(cell)
+            legend_row.addWidget(cell_w, stretch=1)
+
+        legend_w = QWidget()
+        legend_w.setStyleSheet("background: transparent;")
+        legend_w.setLayout(legend_row)
+        layout.addWidget(legend_w)
 
     def _build_priority_bars(self, stats: dict) -> None:
         """Render one styled QProgressBar row per priority level.
@@ -345,7 +380,7 @@ class AnalyticsWidget(QWidget):
         frame.setStyleSheet("QFrame { background: transparent; border: none; }")
         layout = QVBoxLayout(frame)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(6)
+        layout.setSpacing(4)
         return frame
 
     @staticmethod
