@@ -368,7 +368,7 @@ class DashboardInterface(QWidget):
         header_layout.addWidget(self.title_label)
         header_layout.addStretch()
 
-        # Search Bar is now flawlessly docked in the Header!
+        # Search Bar
         self.search_bar = QLineEdit()
         self.search_bar.setPlaceholderText("Search tasks...")
         self.search_bar.setFixedWidth(200)
