@@ -24,14 +24,3 @@ data/efficio.db
 Thumbs.db
 *.pyc
 .ruff_cache
-
-# PyInstaller
-dist/
-build/
-*.spec
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo

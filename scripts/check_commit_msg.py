@@ -17,6 +17,15 @@ def main():
 
     subject = actual_message_lines[0].strip()
 
+    # Automatically allow Git-generated ecosystem commits to pass
+    if (
+        subject.startswith("Merge ")
+        or subject.startswith("Revert ")
+        or subject.startswith("Squashed ")
+        or subject.startswith("Squash ")
+    ):
+        sys.exit(0)
+
     pattern = re.compile(
         r"^(ftr|htfx|epc|tsk|dcmnt|upd|chore|refactor):\s\[([A-Z0-9-]+|No-ID)\]\s.+",
         re.IGNORECASE,
