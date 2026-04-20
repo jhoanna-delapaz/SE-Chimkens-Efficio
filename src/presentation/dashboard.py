@@ -953,7 +953,19 @@ class DashboardInterface(QWidget):
 
                 for col in range(3):
                     row_item.setBackground(col, pastel)
-                    row_item.setForeground(col, QColor(fg_hex))
+
+                # Columns 0 and 2 use QWidget overlays (cell_container, badge_container)
+                # for their visual display. Setting their text to transparent prevents
+                # double-rendering while keeping raw data readable by automated tests.
+                row_item.setForeground(
+                    0, QColor(0, 0, 0, 0)
+                )  # transparent — widget paints this
+                row_item.setForeground(
+                    1, QColor(fg_hex)
+                )  # due date — no overlay, themed color
+                row_item.setForeground(
+                    2, QColor(0, 0, 0, 0)
+                )  # transparent — badge widget paints this
 
                 row_item.setTextAlignment(
                     1, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter

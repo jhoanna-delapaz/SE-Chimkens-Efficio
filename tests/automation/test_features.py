@@ -294,11 +294,11 @@ def test_tc009_task_color_pastel_render(app_window, qtbot):
         bg_color.alpha() == 50
     )  # Verifying the aesthetic alpha glassmorphism trick we injected!
 
-    fg_brush = task_row.foreground(0)
+    fg_brush = task_row.foreground(1)
     fg_color = fg_brush.color()
     assert (
         fg_color.name().upper() == "#D9E0A4"
-    )  # The mapped bright foreground dictionary color!
+    )  # The mapped bright foreground dictionary color — checked on col 1 (due date) since col 0 uses a transparent QWidget overlay!
 
 
 def test_tc010_past_due_date_validation(app_window, qtbot):
