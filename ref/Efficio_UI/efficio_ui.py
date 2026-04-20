@@ -1,11 +1,17 @@
 import sys
 from PyQt6.QtWidgets import (
-    QApplication, QWidget, QFrame,
-    QVBoxLayout, QHBoxLayout, QLabel,
-    QCalendarWidget, QPushButton, QGraphicsBlurEffect,
-    QLineEdit
+    QApplication,
+    QWidget,
+    QFrame,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QCalendarWidget,
+    QPushButton,
+    QGraphicsBlurEffect,
+    QLineEdit,
 )
-from PyQt6.QtGui import QPixmap, QAction, QIcon
+from PyQt6.QtGui import QPixmap, QIcon
 from PyQt6.QtCore import Qt
 
 
@@ -295,7 +301,7 @@ class Dashboard(QWidget):
         pixmap = QPixmap(self.image_path).scaled(
             self.size(),
             Qt.AspectRatioMode.KeepAspectRatioByExpanding,
-            Qt.TransformationMode.SmoothTransformation
+            Qt.TransformationMode.SmoothTransformation,
         )
         self.bg_label.setPixmap(pixmap)
         self.bg_label.setGeometry(0, 0, self.width(), self.height())

@@ -1,8 +1,6 @@
 import sys
 import os
-from PySide6.QtWidgets import (
-    QApplication, QMainWindow
-)
+from PySide6.QtWidgets import QApplication, QMainWindow
 from config import get_default_db_path
 from data.DataBaseHandler import init_db
 from presentation.dashboard import DashboardInterface
