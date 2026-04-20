@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 
 from business.task_manager import TaskManager
 from data.models import Task
+from presentation.analytics_widget import AnalyticsWidget
 from presentation.task_editor_dialog import TaskEditorDialog
 
 try:
@@ -560,16 +561,10 @@ class DashboardInterface(QWidget):
 
         cal_layout.addWidget(calendar)
 
-        performance_card = QFrame()
-        performance_card.setStyleSheet("""QFrame {
-        background-color: rgba(0,0,0,0.5);
-        border-radius: 20px;
-        padding: 15px;
-        }""")
+        self.analytics_widget = AnalyticsWidget()
 
-        right_panel_layout.addWidget(calendar_card)
-        right_panel_layout.addWidget(performance_card)
-        right_panel_layout.addStretch()
+        right_panel_layout.addWidget(calendar_card, stretch=0)
+        right_panel_layout.addWidget(self.analytics_widget, stretch=1)
 
         dash_main_layout.addLayout(task_section_layout, 3)
         dash_main_layout.addLayout(right_panel_layout, 2)
@@ -1027,6 +1022,10 @@ class DashboardInterface(QWidget):
 
                 self.task_tree.setItemWidget(row_item, 2, badge_container)
                 # -------------------------------------------------------------------------
+
+        # Refresh analytics panel so charts always mirror current task state
+        if hasattr(self, "analytics_widget"):
+            self.analytics_widget.refresh(self.task_manager)
 
     def show_kanban_context_menu(self, task, global_pos):
         """

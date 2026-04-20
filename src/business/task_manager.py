@@ -83,3 +83,78 @@ class TaskManager:
             self._data_handler.permanently_delete_task(task_id)
         except sqlite3.Error as e:
             print(f"Database Error on Permanent Delete: {e}")
+
+    def get_task_stats(self) -> dict:
+        """Aggregates task counts for the analytics dashboard.
+
+        Queries all active (non-deleted) tasks and computes counts grouped
+        by status and priority, plus the number of tasks whose due date has
+        already passed. Keeps the analytics widget completely DB-agnostic —
+        it only ever consumes this plain dictionary.
+
+        Returns:
+            dict: A flat mapping of metric names to integer counts, e.g.::
+
+                {
+                    "Pending": 3,
+                    "In Progress": 1,
+                    "Completed": 5,
+                    "Low": 2,
+                    "Medium": 3,
+                    "High": 3,
+                    "Critical": 1,
+                    "overdue": 2,
+                    "total": 9,
+                }
+        """
+        try:
+            tasks = self._data_handler.get_all_tasks()
+        except sqlite3.Error as e:
+            print(f"Database Error on Get Stats: {e}")
+            return {
+                "Pending": 0,
+                "In Progress": 0,
+                "Completed": 0,
+                "Low": 0,
+                "Medium": 0,
+                "High": 0,
+                "Critical": 0,
+                "overdue": 0,
+                "total": 0,
+            }
+
+        from datetime import date
+
+        stats: dict = {
+            "Pending": 0,
+            "In Progress": 0,
+            "Completed": 0,
+            "Low": 0,
+            "Medium": 0,
+            "High": 0,
+            "Critical": 0,
+            "overdue": 0,
+            "total": len(tasks),
+        }
+
+        today = date.today()
+
+        for task in tasks:
+            # Status aggregation
+            if task.status in stats:
+                stats[task.status] += 1
+
+            # Priority aggregation
+            if task.priority in stats:
+                stats[task.priority] += 1
+
+            # Overdue detection: non-completed tasks with a past due date
+            if task.status != "Completed" and task.due_date:
+                try:
+                    due = date.fromisoformat(str(task.due_date).strip())
+                    if due < today:
+                        stats["overdue"] += 1
+                except ValueError:
+                    pass  # Malformed date — silently skip
+
+        return stats
