@@ -17,6 +17,10 @@ def main():
 
     subject = actual_message_lines[0].strip()
 
+    # Automatically allow Git-generated Merge and Revert commits to pass
+    if subject.startswith("Merge ") or subject.startswith("Revert "):
+        sys.exit(0)
+
     pattern = re.compile(
         r"^(ftr|htfx|epc|tsk|dcmnt|upd|chore|refactor):\s\[([A-Z0-9-]+|No-ID)\]\s.+",
         re.IGNORECASE,
