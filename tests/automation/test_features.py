@@ -410,3 +410,194 @@ def test_tc012_toast_visibility_engine(app_window, qtbot):
 
     QTimer.singleShot(100, interact_with_dialog)
     qtbot.mouseClick(dashboard.add_btn, Qt.LeftButton)
+
+
+# ─────────────────────────────────────────────
+# FT04: Urgency UI for tasks with close due dates
+# TC-013 → TC-017
+# ─────────────────────────────────────────────
+
+
+def test_tc013_urgency_detection(app_window, qtbot):
+    """[FT04] TC-013: Task due today is classified as urgent; far-future task is not."""
+    from PySide6.QtCore import QDate
+
+    dashboard = app_window.dashboard
+
+    # Urgent: due today
+    urgent_task = Task(
+        id=None,
+        title="Urgent Task",
+        description="",
+        status="Pending",
+        created_at=datetime.now(),
+        due_date=QDate.currentDate().toString("yyyy-MM-dd"),
+        priority="High",
+        is_deleted=0,
+    )
+    # Not urgent: due 30 days from now
+    safe_task = Task(
+        id=None,
+        title="Safe Task",
+        description="",
+        status="Pending",
+        created_at=datetime.now(),
+        due_date=QDate.currentDate().addDays(30).toString("yyyy-MM-dd"),
+        priority="Low",
+        is_deleted=0,
+    )
+
+    dashboard.task_manager.add_task(urgent_task)
+    dashboard.task_manager.add_task(safe_task)
+    dashboard.load_tasks()
+
+    # Internal urgency predicate mirrors dashboard logic
+    def is_urgent(t):
+        if t.status == "Completed" or not t.due_date:
+            return False
+        parsed = QDate.fromString(str(t.due_date).strip(), "yyyy-MM-dd")
+        return parsed.isValid() and QDate.currentDate().daysTo(parsed) <= 2
+
+    tasks = dashboard.task_manager.get_all_tasks()
+    urgent_titles = [t.title for t in tasks if is_urgent(t)]
+    safe_titles = [t.title for t in tasks if not is_urgent(t)]
+
+    assert "Urgent Task" in urgent_titles
+    assert "Safe Task" in safe_titles
+
+
+def test_tc014_urgency_banner_appears(app_window, qtbot):
+    """[FT04] TC-014: Red urgency banner is visible when at least one urgent task exists."""
+    from PySide6.QtCore import QDate
+
+    dashboard = app_window.dashboard
+
+    # Initially no tasks → banner should be hidden
+    assert not dashboard.urgent_banner_btn.isVisible()
+
+    # Add an urgent task (due today)
+    urgent_task = Task(
+        id=None,
+        title="Banner Test Task",
+        description="",
+        status="Pending",
+        created_at=datetime.now(),
+        due_date=QDate.currentDate().toString("yyyy-MM-dd"),
+        priority="High",
+        is_deleted=0,
+    )
+    dashboard.task_manager.add_task(urgent_task)
+    dashboard.load_tasks()
+
+    # Banner must now be visible and contain the correct count
+    assert dashboard.urgent_banner_btn.isVisible()
+    assert "1" in dashboard.urgent_banner_btn.text()
+    assert "⚠️" in dashboard.urgent_banner_btn.text()
+
+
+def test_tc015_urgent_filter_isolates_tasks(app_window, qtbot):
+    """[FT04] TC-015: 'is:urgent' search filter shows only urgent tasks in the tree."""
+    from PySide6.QtCore import QDate
+
+    dashboard = app_window.dashboard
+
+    # Urgent: due tomorrow
+    dashboard.task_manager.add_task(
+        Task(
+            id=None,
+            title="Overdue Report",
+            description="",
+            status="Pending",
+            created_at=datetime.now(),
+            due_date=QDate.currentDate().addDays(1).toString("yyyy-MM-dd"),
+            priority="High",
+            is_deleted=0,
+        )
+    )
+    # Not urgent: due in 2 weeks
+    dashboard.task_manager.add_task(
+        Task(
+            id=None,
+            title="Future Planning",
+            description="",
+            status="Pending",
+            created_at=datetime.now(),
+            due_date=QDate.currentDate().addDays(14).toString("yyyy-MM-dd"),
+            priority="Low",
+            is_deleted=0,
+        )
+    )
+    dashboard.load_tasks()
+
+    # Apply the special urgency filter keyword
+    dashboard.search_bar.setText("is:urgent")
+
+    todo_group = dashboard.task_tree.topLevelItem(0)
+    # Only 1 urgent task should appear (header + 1 task = 2 children)
+    assert todo_group.childCount() == 2
+    assert "Overdue Report" in todo_group.child(1).text(0)
+
+    # Clear the filter and verify both tasks reappear
+    dashboard.search_bar.setText("")
+    todo_group_cleared = dashboard.task_tree.topLevelItem(0)
+    assert todo_group_cleared.childCount() == 3  # header + 2 tasks
+
+
+def test_tc016_urgent_task_date_is_red(app_window, qtbot):
+    """[FT04] TC-016: The due date cell of an urgent task renders in red (#FF4D4D)."""
+    from PySide6.QtCore import QDate
+    from PySide6.QtGui import QColor
+
+    dashboard = app_window.dashboard
+
+    dashboard.task_manager.add_task(
+        Task(
+            id=None,
+            title="Red Date Task",
+            description="",
+            status="Pending",
+            created_at=datetime.now(),
+            due_date=QDate.currentDate().toString("yyyy-MM-dd"),  # due today → urgent
+            priority="Medium",
+            is_deleted=0,
+        )
+    )
+    dashboard.load_tasks()
+
+    todo_group = dashboard.task_tree.topLevelItem(0)
+    task_row = todo_group.child(1)  # child(0) is the inline header
+
+    # Column 1 holds the due date text — foreground must be urgency red
+    fg_color = task_row.foreground(1).color()
+    assert fg_color.name().upper() == QColor("#FF4D4D").name().upper()
+
+
+def test_tc017_banner_hides_when_no_urgent_tasks(app_window, qtbot):
+    """[FT04] TC-017: Banner disappears after the only urgent task is completed."""
+    from PySide6.QtCore import QDate
+
+    dashboard = app_window.dashboard
+
+    task_id = dashboard.task_manager.add_task(
+        Task(
+            id=None,
+            title="Soon Due Task",
+            description="",
+            status="Pending",
+            created_at=datetime.now(),
+            due_date=QDate.currentDate().addDays(1).toString("yyyy-MM-dd"),
+            priority="High",
+            is_deleted=0,
+        )
+    )
+    dashboard.load_tasks()
+
+    # Banner should be showing now
+    assert dashboard.urgent_banner_btn.isVisible()
+
+    # Complete the task → it is no longer urgent
+    dashboard.task_manager.update_task_status(task_id, "Completed")
+    dashboard.load_tasks()
+
+    # Banner must auto-hide
+    assert not dashboard.urgent_banner_btn.isVisible()
