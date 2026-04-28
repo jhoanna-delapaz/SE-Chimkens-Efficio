@@ -190,29 +190,28 @@ def test_tc006_tc007_trash_management(app_window, qtbot, monkeypatch):
     dashboard.set_mode("trash")
     assert dashboard.current_mode == "trash"
 
-    # Verify it exists in the Trash UI
-    trash_todo_group = dashboard.task_tree.topLevelItem(0)
-    assert trash_todo_group.childCount() == 2
-    assert "Trash Test Task" in trash_todo_group.child(1).text(0)
+    # Verify it exists in the Trash UI (flat list in TrashWidget)
+    assert dashboard.page_trash.task_tree.topLevelItemCount() == 1
+    trash_item = dashboard.page_trash.task_tree.topLevelItem(0)
+
+    # Title is injected via setItemWidget, so text(0) is empty. We can check via the underlying data
+    assert (
+        dashboard.task_manager.get_task_by_id(
+            trash_item.data(0, Qt.ItemDataRole.UserRole)
+        ).title
+        == "Trash Test Task"
+    )
 
     # Permanent Delete Workflow
     monkeypatch.setattr(
         QMessageBox, "warning", lambda *args: QMessageBox.StandardButton.Yes
     )
     dashboard.task_manager.permanently_delete_task(task_id)
-    dashboard.load_tasks()
-
-    # Permanent Delete Workflow
-    monkeypatch.setattr(
-        QMessageBox, "warning", lambda *args: QMessageBox.StandardButton.Yes
-    )
-    dashboard.task_manager.permanently_delete_task(task_id)
-    dashboard.load_tasks()  # <--- THIS VAPORIZES THE OLD POINTER!
+    dashboard.page_trash.refresh()  # <--- THIS VAPORIZES THE OLD POINTER!
 
     # Final Verification: Nulled from existence
     # We MUST re-fetch the pointer here!
-    trash_todo_group_cleared = dashboard.task_tree.topLevelItem(0)
-    assert trash_todo_group_cleared.childCount() == 1
+    assert dashboard.page_trash.task_tree.topLevelItemCount() == 0
 
     db_task = dashboard.task_manager.get_task_by_id(task_id)
     assert db_task is None

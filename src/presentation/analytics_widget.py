@@ -13,7 +13,7 @@ ISO 25010 Compliance:
     - Usability: Empty-state labels guide the user when no data is available.
 """
 
-from PySide6.QtCharts import QChart, QChartView, QPieSlice, QPieSeries
+from PySide6.QtCharts import QChart, QChartView, QPieSeries
 from PySide6.QtCore import QMargins, Qt
 from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import (
@@ -134,7 +134,7 @@ class AnalyticsWidget(QWidget):
 
     # ── Public API ─────────────────────────────────────────────────────────────
 
-    def refresh(self, task_manager) -> None:
+    def refresh(self, task_manager, tasks_list: list = None) -> None:
         """Re-render all metric sections using the latest database snapshot.
 
         Calls ``task_manager.get_task_stats()`` and pipes the resulting dict
@@ -143,8 +143,9 @@ class AnalyticsWidget(QWidget):
 
         Args:
             task_manager: An instance of ``business.task_manager.TaskManager``.
+            tasks_list: Optional explicitly filtered list of tasks to compute stats for.
         """
-        stats = task_manager.get_task_stats()
+        stats = task_manager.get_task_stats(tasks_list)
         self._clear_container(self._donut_container)
         self._clear_container(self._priority_container)
         self._clear_container(self._overdue_container)

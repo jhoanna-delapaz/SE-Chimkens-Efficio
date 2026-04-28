@@ -3,9 +3,21 @@ Business logic for tasks. Delegates all DB access to DataHandler.
 Keeps core logic DB-agnostic for easier testing and future upgrades.
 """
 
+import logging
 import sqlite3
 from data.models import Task
 from data.DataBaseHandler import DataHandler
+
+# ISO 25010 Security: Centralized logging prevents internal exception details from leaking
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+# Avoid duplicating handlers if module is reloaded
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    handler.setFormatter(
+        logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    )
+    logger.addHandler(handler)
 
 
 class TaskManager:
@@ -13,84 +25,123 @@ class TaskManager:
         self.db_file = db_file
         self._data_handler = DataHandler(db_file)
 
+    def _validate_task(self, task: Task) -> bool:
+        """Validates task integrity to prevent malicious or malformed injections."""
+        if not task.title or not task.title.strip():
+            logger.warning(
+                "Security/Validation Alert: Blocked attempt to save task with empty title."
+            )
+            return False
+        if len(task.title) > 255:
+            logger.warning(
+                "Security/Validation Alert: Task title exceeds maximum allowed length."
+            )
+            return False
+
+        # Basic anti-XSS heuristic
+        malicious_patterns = ["<script>", "javascript:", "onload="]
+        title_lower = task.title.lower()
+        desc_lower = (task.description or "").lower()
+        if any(p in title_lower or p in desc_lower for p in malicious_patterns):
+            logger.warning(
+                "Security/Validation Alert: Blocked potential script injection attempt."
+            )
+            return False
+
+        return True
+
     def close(self) -> None:
         """Close DB connection. Call on shutdown to avoid file locks."""
         self._data_handler.close()
 
     def add_task(self, task: Task) -> int:
-        """Saves a new task to the database safely."""
+        """Saves a new task to the database safely after validation."""
+        if not self._validate_task(task):
+            return -1
         try:
             return self._data_handler.add_task(task)
-        except sqlite3.Error as e:
-            print(f"Database Error on Add: {e}")
+        except sqlite3.Error:
+            logger.error(
+                "Database Integrity Error on Add (details masked for security)"
+            )
             return -1
 
     def get_all_tasks(self, search_query: str = "") -> list:
         """Fetches all active tasks, optionally applying a keyword search."""
         try:
             return self._data_handler.get_all_tasks(search_query)
-        except sqlite3.Error as e:
-            print(f"Database Error: {e}")
+        except sqlite3.Error:
+            logger.error(
+                "Database Query Error on Get All (details masked for security)"
+            )
             return []
 
     def get_task_by_id(self, task_id: int):
         """Fetches a specific task by ID securely."""
         try:
             return self._data_handler.get_task_by_id(task_id)
-        except sqlite3.Error as e:
-            print(f"Database Error on Get ID: {e}")
+        except sqlite3.Error:
+            logger.error(
+                f"Database Query Error on Get ID for Task {task_id} (details masked)"
+            )
             return None
 
     def delete_task(self, task_id: int) -> None:
         """Deletes a task safely."""
         try:
             self._data_handler.delete_task(task_id)
-        except sqlite3.Error as e:
-            print(f"Database Error on Delete: {e}")
+        except sqlite3.Error:
+            logger.error(f"Database Integrity Error on Delete for Task {task_id}")
 
     def update_task_status(self, task_id: int, status: str) -> None:
         """Updates just the string status of a specific task."""
         try:
             self._data_handler.update_task_status(task_id, status)
-        except sqlite3.Error as e:
-            print(f"Database Error on Update Status: {e}")
+        except sqlite3.Error:
+            logger.error(
+                f"Database Integrity Error on Update Status for Task {task_id}"
+            )
 
     def update_task(self, task: Task) -> None:
-        """Updates an entire task object securely."""
+        """Updates an entire task object securely after validation."""
+        if not self._validate_task(task):
+            return
         try:
             self._data_handler.update_task(task)
-        except sqlite3.Error as e:
-            print(f"Database Error on Update: {e}")
+        except sqlite3.Error:
+            logger.error(f"Database Integrity Error on Update for Task {task.id}")
 
     def get_deleted_tasks(self, search_query: str = "") -> list:
         """Fetches all tasks from the Trash securely, optionally applying a keyword search."""
         try:
             return self._data_handler.get_deleted_tasks(search_query)
-        except sqlite3.Error as e:
-            print(f"Database Error on Get Deleted: {e}")
+        except sqlite3.Error:
+            logger.error(
+                "Database Query Error on Get Deleted (details masked for security)"
+            )
             return []
 
     def restore_task(self, task_id: int) -> None:
         """Restores a task from the Trash securely."""
         try:
             self._data_handler.restore_task(task_id)
-        except sqlite3.Error as e:
-            print(f"Database Error on Restore: {e}")
+        except sqlite3.Error:
+            logger.error(f"Database Integrity Error on Restore for Task {task_id}")
 
     def permanently_delete_task(self, task_id: int) -> None:
         """Permanently obliterates a task from storage."""
         try:
             self._data_handler.permanently_delete_task(task_id)
-        except sqlite3.Error as e:
-            print(f"Database Error on Permanent Delete: {e}")
+        except sqlite3.Error:
+            logger.error(
+                f"Database Integrity Error on Permanent Delete for Task {task_id}"
+            )
 
-    def get_task_stats(self) -> dict:
+    def get_task_stats(self, tasks_list: list = None) -> dict:
         """Aggregates task counts for the analytics dashboard.
 
-        Queries all active (non-deleted) tasks and computes counts grouped
-        by status and priority, plus the number of tasks whose due date has
-        already passed. Keeps the analytics widget completely DB-agnostic —
-        it only ever consumes this plain dictionary.
+        If a list of tasks is provided, computes stats for that exact list
+        (respecting UI filters). Otherwise, queries all active tasks.
 
         Returns:
             dict: A flat mapping of metric names to integer counts, e.g.::
@@ -107,21 +158,26 @@ class TaskManager:
                     "total": 9,
                 }
         """
-        try:
-            tasks = self._data_handler.get_all_tasks()
-        except sqlite3.Error as e:
-            print(f"Database Error on Get Stats: {e}")
-            return {
-                "Pending": 0,
-                "In Progress": 0,
-                "Completed": 0,
-                "Low": 0,
-                "Medium": 0,
-                "High": 0,
-                "Critical": 0,
-                "overdue": 0,
-                "total": 0,
-            }
+        if tasks_list is None:
+            try:
+                tasks = self._data_handler.get_all_tasks()
+            except sqlite3.Error:
+                logger.error(
+                    "Database Query Error on Get Stats (details masked for security)"
+                )
+                return {
+                    "Pending": 0,
+                    "In Progress": 0,
+                    "Completed": 0,
+                    "Low": 0,
+                    "Medium": 0,
+                    "High": 0,
+                    "Critical": 0,
+                    "overdue": 0,
+                    "total": 0,
+                }
+        else:
+            tasks = tasks_list
 
         from datetime import date
 

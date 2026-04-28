@@ -30,6 +30,7 @@ from business.task_manager import TaskManager
 from data.models import Task
 from presentation.analytics_widget import AnalyticsWidget
 from presentation.task_editor_dialog import TaskEditorDialog
+from presentation.trash_widget import TrashWidget
 
 try:
     from config import get_default_db_path
@@ -201,7 +202,9 @@ class KanbanCard(QFrame):
         self.customContextMenuRequested.connect(self.show_menu)
 
     def show_menu(self, pos):
-        # Passes control securely back to the Dashboard Controller
+        """
+        Passes control securely back to the Dashboard Controller
+        """
         self.dashboard.show_kanban_context_menu(self.task, self.mapToGlobal(pos))
 
     def sizeHint(self):
@@ -227,6 +230,13 @@ class DashboardInterface(QWidget):
     """
 
     def __init__(self, parent=None, db_file=None):
+        """
+        Initializes the DashboardInterface with the given parent and database file path.
+
+        Args:
+            parent (QWidget): The parent widget of this widget.
+            db_file (str): The path to the SQLite database file.
+        """
         super().__init__(parent=parent)
         self.setObjectName("DashboardInterface")
 
@@ -271,8 +281,13 @@ class DashboardInterface(QWidget):
         self.update_background()
         self.load_tasks()
 
-    # Window Resizing Engines (Paste directly under __init__)
     def resizeEvent(self, event):
+        """
+        Overrides the default resize event to handle window resizing.
+
+        Args:
+            event (QResizeEvent): The resize event.
+        """
         self.update_background()
         super().resizeEvent(event)
 
@@ -742,6 +757,9 @@ class DashboardInterface(QWidget):
         self.content_stack.addWidget(self.page_dashboard)  # Index 0
         self.content_stack.addWidget(self.page_kanban)  # Index 1
 
+        self.page_trash = TrashWidget(self)
+        self.content_stack.addWidget(self.page_trash)  # Index 2
+
         self.main_layout.addWidget(self.sidebar)
         self.main_layout.addWidget(self.content_stack, stretch=1)
 
@@ -790,11 +808,8 @@ class DashboardInterface(QWidget):
         # Prevent SQLite from trying to literally search for "is:urgent" in the Title
         db_query = "" if query == "is:urgent" else query
 
-        # 3. Pull from standard DB or Trash DB
-        if self.current_mode == "trash":
-            tasks = self.task_manager.get_deleted_tasks(db_query)
-        else:
-            tasks = self.task_manager.get_all_tasks(db_query)
+        # 3. Pull from standard DB
+        tasks = self.task_manager.get_all_tasks(db_query)
 
         # --------- CORE URGENCY ALGORITHM ---------
         def is_task_urgent(t):
@@ -1025,7 +1040,7 @@ class DashboardInterface(QWidget):
 
         # Refresh analytics panel so charts always mirror current task state
         if hasattr(self, "analytics_widget"):
-            self.analytics_widget.refresh(self.task_manager)
+            self.analytics_widget.refresh(self.task_manager, tasks)
 
     def show_kanban_context_menu(self, task, global_pos):
         """
@@ -1286,18 +1301,17 @@ class DashboardInterface(QWidget):
         if mode == "trash":
             self.title_label.setText("Trash Bin")
             self.add_btn.hide()
-            self.content_stack.setCurrentIndex(
-                0
-            )  # Trash shows via the Dashboard layout
+            self.content_stack.setCurrentIndex(2)  # TrashWidget
+            self.page_trash.refresh()
         elif mode == "active":
             self.title_label.setText("My Tasks")
             self.add_btn.show()
             self.content_stack.setCurrentIndex(0)  # Dashboard Profile
+            self.load_tasks()
         elif mode == "kanban":
             # Swaps the screen purely to the massive Kanban Board!
             self.content_stack.setCurrentIndex(1)
-
-        self.load_tasks()
+            self.load_tasks()
 
     def toggle_group_expansion(self, item, column):
         """
