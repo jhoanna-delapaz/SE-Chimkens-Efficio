@@ -1,20 +1,34 @@
-"""
-Central configuration for the application.
-Single source of truth for paths and settings.
-"""
-
 import os
+import platform
+from pathlib import Path
 
 
 def get_default_db_path():
-    # This automatically finds the absolute path of the 'src' folder where config.py lives
-    src_dir = os.path.dirname(os.path.abspath(__file__))
+    """
+    ISO 25010 Security (Confidentiality) Update:
+    Instead of storing the database in the open `src/data` folder where anyone
+    with access to the project can read it, we now store it in the OS's secure
+    user-specific AppData / Home directory.
 
-    # Path to the data folder
-    data_dir = os.path.join(src_dir, "data")
+    This leverages native OS file permissions (sandboxing), ensuring that
+    only the currently logged-in user can access the database file.
+    """
+    # 1. Determine the secure user-specific data directory based on the OS
+    if platform.system() == "Windows":
+        # Usually C:\Users\Username\AppData\Roaming
+        base_dir = Path(os.environ.get("APPDATA", Path.home()))
+    elif platform.system() == "Darwin":
+        # macOS: ~/Library/Application Support
+        base_dir = Path.home() / "Library" / "Application Support"
+    else:
+        # Linux/Unix: ~/.local/share
+        base_dir = Path.home() / ".local" / "share"
 
-    # Ensure the folder exists before SQLite tries to read/write!
-    if not os.path.exists(data_dir):
-        os.makedirs(data_dir)
+    # 2. Append our specific application folder
+    app_dir = base_dir / "Efficio" / "data"
 
-    return os.path.join(data_dir, "efficio.db")
+    # 3. Create the directory securely if it doesn't exist
+    app_dir.mkdir(parents=True, exist_ok=True)
+
+    # 4. Return the absolute path to the secure database
+    return str(app_dir / "efficio.db")
