@@ -1,4 +1,5 @@
 import os
+import sys
 from datetime import datetime
 
 from PySide6.QtCore import (
@@ -34,6 +35,24 @@ try:
     from config import get_default_db_path
 except ImportError:
     get_default_db_path = None
+
+
+def resource_path(relative_path: str) -> str:
+    """
+    Resolves file asset paths correctly for both the development environment
+    and the PyInstaller-bundled executable.
+
+    In dev:  falls back to the repo root (src/../) so existing paths work.
+    In exe:  uses sys._MEIPASS, the temp folder PyInstaller extracts files into.
+    """
+    base = getattr(
+        sys,
+        "_MEIPASS",
+        os.path.normpath(
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
+        ),
+    )
+    return os.path.normpath(os.path.join(base, relative_path))
 
 
 # GLOBAL SYSTEM THEME MAP
@@ -253,10 +272,9 @@ class DashboardInterface(QWidget):
         # Sidebar UI State tracking
         self.sidebar_expanded = False
 
-        # Safely calculate absolute path to the teammate's image
-        src_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        self.preset_image_path = os.path.join(
-            src_dir, "..", "ref", "Efficio_UI", "images", "pastel-bg.jpg"
+        # Resolve background image path — works in both dev and PyInstaller exe
+        self.preset_image_path = resource_path(
+            os.path.join("ref", "Efficio_UI", "images", "pastel-bg.jpg")
         )
 
         # Setup the Glassmorphism Background Blur
