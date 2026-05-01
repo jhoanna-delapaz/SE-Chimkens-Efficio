@@ -1,0 +1,9 @@
+type: [ID] description
+
+# --- Efficio Commit Standard ---
+# Ensure your type is one of: ftr, htfx, epc, tsk, dcmnt, upd, chore, refactor
+# Ensure your ID is a valid tag like [FT01] or [No-ID]
+# Example:
+# ftr: [FT01] built search bar
+# chore: [No-ID] clean up unused imports
+# -------------------------------

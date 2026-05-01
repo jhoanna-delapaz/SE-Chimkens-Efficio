@@ -2,6 +2,7 @@
 Business logic for tasks. Delegates all DB access to DataHandler.
 Keeps core logic DB-agnostic for easier testing and future upgrades.
 """
+
 import sqlite3
 from data.models import Task
 from data.DataBaseHandler import DataHandler

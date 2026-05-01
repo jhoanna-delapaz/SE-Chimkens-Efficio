@@ -2,9 +2,16 @@ name: Efficio CI/CD Pipeline
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "develop" ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ "main", "develop" ]
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+permissions:
+  checks: write
+  pull-requests: write
 
 jobs:
   build-and-test:
@@ -15,7 +22,7 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: '3.11'
 
@@ -51,12 +58,7 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-        pip install pytest-qt pytest-xvfb
-
-    - name: Lint with Flake8
-      run: |
-        # E402: imports not at top, W503/W504: line breaks around operators
-        flake8 src/ --max-line-length=100 --ignore=E402,W503,W504
+        pip install pytest-qt pytest-xvfb ruff
 
     - name: Verify Qt Platform Plugin Dependencies
       run: |
@@ -71,13 +73,24 @@ jobs:
           exit 1
         fi
 
+    - name: Enforce Code Quality (Ruff)
+      run: |
+        ruff format --check .
+        ruff check .
+
     - name: Run Automated UI Tests
       env:
         QT_QPA_PLATFORM: xcb
         QT_X11_NO_MITSHM: 1
         # Set PYTHONPATH so pytest can find your 'src' folder
         PYTHONPATH: ${{ github.workspace }}/src
-        QT_QPA_PLATFORM_PLUGIN_PATH: ${{ env.pythonLocation }}/lib/python3.11/site-packages/PySide6/Qt/plugins
       run: |
+        export QT_QPA_PLATFORM_PLUGIN_PATH="$pythonLocation/lib/python3.11/site-packages/PySide6/Qt/plugins"
         xvfb-run --auto-servernum --server-args="-screen 0 1280x1024x24" \
-        pytest tests/automation/test_features.py -v
+        pytest tests/automation/test_features.py -v --junitxml=reports/test-results.xml
+
+    - name: Publish Visual Test Summary
+      uses: EnricoMi/publish-unit-test-result-action@v2
+      if: always()
+      with:
+        files: "reports/test-results.xml"

@@ -4,34 +4,43 @@ on:
   push:
   pull_request:
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   check-commit-message:
     runs-on: ubuntu-latest
-
     steps:
       - name: Check commit messages
         uses: actions/github-script@v7
         with:
           script: |
-            const pattern = /^\[EP\d{2}-FT\d{2}\] (add|fix|update|remove): .+/i;
+            // Regex enforces: type: [Hierarchical-ID] description
+            const pattern = /^(ftr|htfx|epc|tsk|dcmnt|upd|chore|refactor):\s\[([A-Z0-9-]+|No-ID)\]\s.+/i;
 
             const commits = context.payload.commits || [];
 
             for (const commit of commits) {
-              const message = commit.message;
+              const message = commit.message.split('\n')[0]; // Only check the subject line
+
+              // Whitelist Git ecosystem-generated commits from the strict checks
+              if (message.startsWith("Merge ") || message.startsWith("Revert ") || message.startsWith("Squashed ") || message.startsWith("Squash ")) {
+                continue;
+              }
 
               if (!pattern.test(message)) {
                 core.setFailed(`
-Invalid commit message!
+            Invalid commit message: "${message}"
 
-Required format:
-[EP##-FT##] type: short description
+            Required format (CONTRIBUTING.md Standards):
+            type: [Hierarchical-ID] description [#GitHubID]
 
-Allowed types:
-add, fix, update, remove
+            Allowed types:
+            ftr, htfx, epc, tsk, dcmnt, upd, chore, refactor
 
-Example:
-[EP01-FT06] add: create button
+            Valid Examples:
+            ftr: [FT01] built search bar [#26]
+            chore: [No-ID] clean up files
                 `);
               }
             }
@@ -39,26 +48,26 @@ Example:
   check-pr-title:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-
     steps:
       - name: Check PR title
         uses: actions/github-script@v7
         with:
           script: |
-            const pattern = /^\[EP\d{2}-FT\d{2}\] (add|fix|update|remove): .+/i;
+            const pattern = /^(ftr|htfx|epc|tsk|dcmnt|upd|chore|refactor):\s\[([A-Z0-9-]+|No-ID)\]\s.+/i;
             const title = context.payload.pull_request.title;
 
             if (!pattern.test(title)) {
               core.setFailed(`
-Invalid title!
+            Invalid PR title: "${title}"
 
-Required format:
-[EP##-FT##] type: short description
+            Required format (CONTRIBUTING.md Standards):
+            type: [Hierarchical-ID] description (#GitHubID)
 
-Allowed types:
-add, fix, update, remove
+            Allowed types:
+            ftr, htfx, epc, tsk, dcmnt, upd, chore, refactor
 
-Example:
-[EP01-FT06] add: create button
+            Valid Examples:
+            ftr: [FT01] built search bar (#26)
+            chore: [No-ID] clean up files
               `);
             }

@@ -2,6 +2,7 @@
 Central configuration for the application.
 Single source of truth for paths and settings.
 """
+
 import os
 
 

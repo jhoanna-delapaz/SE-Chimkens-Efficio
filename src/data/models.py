@@ -1,4 +1,3 @@
-
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
@@ -14,6 +13,7 @@ class Task:
     due_date: Optional[datetime]
     priority: str
     is_deleted: int = 0
+    color: str = "#FFFFFF"  # Default white HEX
 
 
 @dataclass

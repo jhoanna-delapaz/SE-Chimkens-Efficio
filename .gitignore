@@ -1,1 +1,26 @@
+# Project Files
 SE_WIP_SprintPlanning_CHIMKENS_EFFICIO.pdf
+
+# Python Caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+
+# Database files
+*.db
+*.sqlite3
+data/efficio.db
+
+# OS Generated Files
+.DS_Store
+Thumbs.db
+*.pyc
+.ruff_cache

@@ -1,4 +1,3 @@
-
 import sqlite3
 from sqlite3 import Error
 from typing import Optional
@@ -6,7 +5,7 @@ from data.models import Task
 
 
 def create_connection(db_file):
-    """ create a database connection to the SQLite database
+    """create a database connection to the SQLite database
         specified by db_file
     :param db_file: database file
     :return: Connection object or None
@@ -40,12 +39,13 @@ def _row_to_task(row) -> Task:
         created_at=row[4],
         due_date=row[5] or "",
         priority=row[6],
-        is_deleted=row[7] if len(row) > 7 else 0
+        is_deleted=row[7] if len(row) > 7 else 0,
+        color=row[8] if len(row) > 8 else "#333333",  # Parse color or fallback
     )
 
 
 def create_table(conn, create_table_sql):
-    """ create a table from the create_table_sql statement
+    """create a table from the create_table_sql statement
     :param conn: Connection object
     :param create_table_sql: a CREATE TABLE statement
     :return:
@@ -94,7 +94,18 @@ def init_db(db_file):
                 cur = conn.cursor()
                 cur.execute("ALTER TABLE tasks ADD COLUMN is_deleted integer DEFAULT 0")
                 conn.commit()
-                print("Database successfully migrated to Sprint 2 SCHEMA (Added is_deleted).")
+                print(
+                    "Database successfully migrated to Sprint 2 SCHEMA (Added is_deleted)."
+                )
+            except Exception:
+                pass
+
+            # ISO 25010 Reliability: Safely migrate Color Feature
+            try:
+                cur = conn.cursor()
+                cur.execute("ALTER TABLE tasks ADD COLUMN color TEXT DEFAULT '#FFFFFF'")
+                conn.commit()
+                print("Database successfully migrated to Color SCHEMA.")
             except Exception:
                 pass
 
@@ -126,8 +137,8 @@ class DataHandler:
         cur = self._conn.cursor()
         cur.execute(
             """INSERT INTO tasks
-               (title, description, status, created_at, due_date, priority, is_deleted)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+               (title, description, status, created_at, due_date, priority, is_deleted, color)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 task.title,
                 task.description or "",
@@ -135,7 +146,8 @@ class DataHandler:
                 _serialize_for_sqlite(task.created_at),
                 _serialize_for_sqlite(task.due_date),
                 task.priority,
-                0  # Default to active when created
+                0,  # Default to active when created
+                task.color,  # NEW
             ),
         )
         self._conn.commit()
@@ -148,13 +160,18 @@ class DataHandler:
         if search_query:
             # Add wildcards to match the string anywhere inside the field
             query = f"%{search_query}%"
-            cur.execute("""
+            cur.execute(
+                """
                 SELECT * FROM tasks
                 WHERE (is_deleted = 0 OR is_deleted IS NULL)
                 AND (title LIKE ? OR description LIKE ?)
-            """, (query, query))
+            """,
+                (query, query),
+            )
         else:
-            cur.execute("SELECT * FROM tasks WHERE is_deleted = 0 OR is_deleted IS NULL")
+            cur.execute(
+                "SELECT * FROM tasks WHERE is_deleted = 0 OR is_deleted IS NULL"
+            )
 
         rows = cur.fetchall()
         return [_row_to_task(r) for r in rows]
@@ -165,11 +182,14 @@ class DataHandler:
 
         if search_query:
             query = f"%{search_query}%"
-            cur.execute("""
+            cur.execute(
+                """
                 SELECT * FROM tasks
                 WHERE is_deleted = 1
                 AND (title LIKE ? OR description LIKE ?)
-            """, (query, query))
+            """,
+                (query, query),
+            )
         else:
             cur.execute("SELECT * FROM tasks WHERE is_deleted = 1")
 
@@ -197,13 +217,14 @@ class DataHandler:
         cur = self._conn.cursor()
         cur.execute(
             """UPDATE tasks SET title=?, description=?, status=?
-               , due_date=?, priority=? WHERE id=?""",
+               , due_date=?, priority=?, color=? WHERE id=?""",
             (
                 task.title,
                 task.description or "",
                 task.status,
                 _serialize_for_sqlite(task.due_date),
                 task.priority,
+                task.color,
                 task.id,
             ),
         )
