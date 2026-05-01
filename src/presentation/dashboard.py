@@ -58,6 +58,50 @@ ACTIVE_THEME_MAP = {
 }
 
 
+def format_due_countdown(due_date_str, status: str = "") -> str | None:
+    """
+    Returns a short human-readable countdown tooltip for a task's due date.
+    Scales: minutes → hours → days.
+    Returns None for Completed tasks or tasks with no due date.
+    """
+    if not due_date_str or status == "Completed":
+        return None
+
+    due_str = str(due_date_str).strip()
+    try:
+        due_dt = datetime.fromisoformat(due_str)
+    except ValueError:
+        try:
+            # Legacy date-only: assume end of day
+            due_dt = datetime.strptime(due_str, "%Y-%m-%d").replace(
+                hour=23, minute=59, second=59
+            )
+        except ValueError:
+            return None
+
+    delta = due_dt - datetime.now()
+    total_seconds = delta.total_seconds()
+
+    if total_seconds < 0:
+        abs_s = abs(total_seconds)
+        if abs_s < 3600:
+            return f"⚠️ Overdue by {int(abs_s // 60)}m"
+        elif abs_s < 86400:
+            return f"⚠️ Overdue by {int(abs_s // 3600)}h"
+        else:
+            return f"⚠️ Overdue by {int(abs_s // 86400)}d"
+    elif total_seconds < 3600:
+        return f"⏰ Due in {max(1, int(total_seconds // 60))}m"
+    elif total_seconds < 86400:
+        return f"⏰ Due in {int(total_seconds // 3600)}h"
+    else:
+        # Always show days for future tasks — urgent window gets ⏰, others get 📅
+        days = int(total_seconds // 86400)
+        if days <= 3:
+            return f"⏰ Due in {days}d"
+        return f"📅 Due in {days}d"
+
+
 class KanbanCard(QFrame):
     """
     Custom QFrame GUI component representing a single task in the Kanban board.
@@ -221,7 +265,12 @@ class KanbanCard(QFrame):
             footer_layout.addStretch()
             layout.addLayout(footer_layout)
 
-        # 5. Context Menu Engine Integration
+        # 5. Countdown Tooltip
+        countdown = format_due_countdown(task.due_date, task.status)
+        if countdown:
+            self.setToolTip(countdown)
+
+        # 6. Context Menu Engine Integration
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self.show_menu)
 
@@ -996,6 +1045,12 @@ class DashboardInterface(QWidget):
                 row_item.setSizeHint(0, QSize(0, 32))
 
                 row_item.setData(0, Qt.ItemDataRole.UserRole, task.id)
+
+                # Countdown tooltip — spread across all columns so hovering anywhere on the row shows it
+                countdown = format_due_countdown(task.due_date, task.status)
+                if countdown:
+                    for col in range(3):
+                        row_item.setToolTip(col, countdown)
 
                 # NATIVE PASTEL UI
                 bg_hex = (

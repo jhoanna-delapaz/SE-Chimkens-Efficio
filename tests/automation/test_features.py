@@ -827,8 +827,8 @@ def test_tc023_analytics_refreshes_on_status_change(app_window, qtbot):
     assert stats_after["Completed"] == 1
 
 
-def test_tc025_datetime_parsing(app_window):
-    """TC-025: Verify backwards compatibility for legacy date vs new datetime string parsing"""
+def test_tc024_datetime_parsing(app_window):
+    """TC-024: Verify backwards compatibility for legacy date vs new datetime string parsing"""
     from datetime import datetime
 
     dashboard = app_window.dashboard
