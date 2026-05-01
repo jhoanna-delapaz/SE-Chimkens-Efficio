@@ -325,7 +325,7 @@ def test_tc010_past_due_date_validation(app_window, qtbot):
 
             if (
                 top_widget.toast.isVisible()
-                and top_widget.toast.text() == "Due Date cannot be in the past!"
+                and top_widget.toast.text() == "Due Date/Time cannot be in the past!"
             ):
                 toast_activated = True
 
@@ -825,3 +825,47 @@ def test_tc023_analytics_refreshes_on_status_change(app_window, qtbot):
     stats_after = dashboard.task_manager.get_task_stats()
     assert stats_after["In Progress"] == 0
     assert stats_after["Completed"] == 1
+
+
+def test_tc025_datetime_parsing(app_window):
+    """TC-025: Verify backwards compatibility for legacy date vs new datetime string parsing"""
+    from datetime import datetime
+
+    dashboard = app_window.dashboard
+
+    # 1. Insert Legacy Task (Date Only)
+    dashboard.task_manager.add_task(
+        Task(
+            id=0,
+            title="Legacy Task",
+            description="",
+            status="Pending",
+            created_at=datetime.now(),
+            due_date="2020-01-01",  # Very old date
+            priority="Low",
+            color="#FFFFFF",
+            is_deleted=0,
+        )
+    )
+
+    # 2. Insert New Task (Full Datetime)
+    dashboard.task_manager.add_task(
+        Task(
+            id=0,
+            title="New Task",
+            description="",
+            status="Pending",
+            created_at=datetime.now(),
+            due_date="2020-01-01T14:30:00",  # Full datetime
+            priority="Low",
+            color="#FFFFFF",
+            is_deleted=0,
+        )
+    )
+
+    # This should safely parse both without throwing ValueError and accurately calculate overdue
+    stats = dashboard.task_manager.get_task_stats()
+
+    # Both tasks are from 2020, so they should both be counted as overdue
+    assert stats["overdue"] == 2
+    assert stats["total"] == 2

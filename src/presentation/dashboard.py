@@ -2,7 +2,6 @@ import os
 from datetime import datetime
 
 from PySide6.QtCore import (
-    QDate,
     QSize,
     Qt,
 )
@@ -122,19 +121,29 @@ class KanbanCard(QFrame):
             return " ".join(shattered)
 
         # --------- URGENCY BORDER OVERRIDE ---------
-        from PySide6.QtCore import QDate
+        from PySide6.QtCore import QDateTime
 
         def is_task_urgent(t):
             if t.status == "Completed":
                 return False
             if not t.due_date:
                 return False
-            parsed_date = QDate.fromString(
-                str(t.due_date).strip(), Qt.DateFormat.ISODate
-            )
-            if not parsed_date.isValid():
-                return False
-            return QDate.currentDate().daysTo(parsed_date) <= 2
+
+            due_str = str(t.due_date).strip()
+            parsed_dt = QDateTime.fromString(due_str, Qt.DateFormat.ISODate)
+
+            # Fallback to date-only if parsing failed (legacy tasks)
+            if not parsed_dt.isValid():
+                parsed_d = QDate.fromString(due_str, Qt.DateFormat.ISODate)
+                if not parsed_d.isValid():
+                    return False
+                parsed_dt = QDateTime(parsed_d, QDateTime.currentDateTime().time())
+
+            # Urgent if it's due within 48 hours
+            secs_to = QDateTime.currentDateTime().secsTo(parsed_dt)
+            return (
+                secs_to <= (2 * 24 * 3600) and secs_to > -86400
+            )  # Between yesterday and 48 hours from now
 
         border_css = (
             "border-left: 5px solid #FF4D4D;"
@@ -190,8 +199,23 @@ class KanbanCard(QFrame):
 
         # 4. Footer Row (Due Date)
         if task.due_date:
+            from PySide6.QtCore import QDate, QDateTime
+
+            due_str = str(task.due_date).strip()
+
+            # Format nicely
+            parsed_dt = QDateTime.fromString(due_str, Qt.DateFormat.ISODate)
+            if parsed_dt.isValid():
+                display_str = parsed_dt.toString("MMM d, yyyy - h:mm AP")
+            else:
+                parsed_d = QDate.fromString(due_str, Qt.DateFormat.ISODate)
+                if parsed_d.isValid():
+                    display_str = parsed_d.toString("MMM d, yyyy")
+                else:
+                    display_str = due_str
+
             footer_layout = QHBoxLayout()
-            due_lbl = QLabel(f"📅 {task.due_date}")
+            due_lbl = QLabel(f"📅 {display_str}")
             due_lbl.setStyleSheet("font-size: 12px; font-weight: bold; opacity: 0.8;")
             footer_layout.addWidget(due_lbl)
             footer_layout.addStretch()
@@ -519,12 +543,10 @@ class DashboardInterface(QWidget):
         header = self.task_tree.header()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)  # Task Title
         header.setSectionResizeMode(
-            1, QHeaderView.ResizeMode.ResizeToContents
-        )  # Due Date
+            1, QHeaderView.ResizeMode.Fixed
+        )  # Due Date — Fixed so centering works
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)  # Priority
-        self.task_tree.setColumnWidth(
-            1, 140
-        )  # Locks the column strictly so it never balloons
+        self.task_tree.setColumnWidth(1, 200)  # Wide enough for "MMM d, yy - h:mm AP"
         self.task_tree.setColumnWidth(2, 90)
 
         # Right-Click Menu Support Integration
@@ -812,20 +834,27 @@ class DashboardInterface(QWidget):
         tasks = self.task_manager.get_all_tasks(db_query)
 
         # --------- CORE URGENCY ALGORITHM ---------
+        from PySide6.QtCore import QDateTime
+
         def is_task_urgent(t):
             if t.status == "Completed":
                 return False
             if not t.due_date:
                 return False
-            parsed_date = QDate.fromString(
-                str(t.due_date).strip(), Qt.DateFormat.ISODate
-            )
-            if not parsed_date.isValid():
-                return False
-            days_to_due = QDate.currentDate().daysTo(parsed_date)
-            return (
-                days_to_due <= 2
-            )  # Anything overdue or within 48 hours is considered an emergency
+
+            due_str = str(t.due_date).strip()
+            parsed_dt = QDateTime.fromString(due_str, Qt.DateFormat.ISODate)
+
+            # Fallback to date-only if parsing failed (legacy tasks)
+            if not parsed_dt.isValid():
+                parsed_d = QDate.fromString(due_str, Qt.DateFormat.ISODate)
+                if not parsed_d.isValid():
+                    return False
+                parsed_dt = QDateTime(parsed_d, QDateTime.currentDateTime().time())
+
+            # Urgent if it's due within 48 hours
+            secs_to = QDateTime.currentDateTime().secsTo(parsed_dt)
+            return secs_to <= (2 * 24 * 3600) and secs_to > -86400
 
         # Intercept the database pull and artificially slice it if the banner was clicked
         if query == "is:urgent":
@@ -926,6 +955,9 @@ class DashboardInterface(QWidget):
                     inline_header.setFont(col, inline_font)  # Applies the bigger font
 
                 inline_header.setTextAlignment(
+                    1, Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter
+                )
+                inline_header.setTextAlignment(
                     2, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
                 )
                 grp.addChild(inline_header)
@@ -938,11 +970,26 @@ class DashboardInterface(QWidget):
                 else:
                     parent_grp = todo_group
 
+                display_str = "--"
+                if task.due_date:
+                    from PySide6.QtCore import QDateTime, QDate
+
+                    due_str = str(task.due_date).strip()
+                    parsed_dt = QDateTime.fromString(due_str, Qt.DateFormat.ISODate)
+                    if parsed_dt.isValid():
+                        display_str = parsed_dt.toString("MMM d, yy - h:mm AP")
+                    else:
+                        parsed_d = QDate.fromString(due_str, Qt.DateFormat.ISODate)
+                        if parsed_d.isValid():
+                            display_str = parsed_d.toString("MMM d, yy")
+                        else:
+                            display_str = due_str
+
                 # 3. Build the Raw Text Row
                 row_item = QTreeWidgetItem(
                     [
                         task.title,
-                        task.due_date if task.due_date else "--",
+                        display_str,
                         task.priority,
                     ]
                 )
@@ -978,7 +1025,7 @@ class DashboardInterface(QWidget):
                 )  # transparent — badge widget paints this
 
                 row_item.setTextAlignment(
-                    1, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+                    1, Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter
                 )
 
                 # --------- LEFT BORDER INJECTION ---------
