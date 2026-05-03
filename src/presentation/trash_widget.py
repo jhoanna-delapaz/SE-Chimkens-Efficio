@@ -56,9 +56,12 @@ class TrashWidget(QWidget):
         self.search_bar = QLineEdit()
         self.search_bar.setPlaceholderText("Search deleted tasks...")
         self.search_bar.setFixedWidth(250)
-        self.search_bar.setStyleSheet(
-            "padding: 8px; border-radius: 10px; background-color: rgba(255,255,255,0.1); color: white;"
-        )
+        self.search_bar.setStyleSheet("""
+            QLineEdit {
+                padding: 8px; border-radius: 10px; background-color: rgba(255,255,255,0.1); color: white;
+            }
+            QLineEdit:hover { background-color: rgba(255,255,255,0.15); }
+        """)
         self.search_bar.textChanged.connect(self.refresh)
         header_layout.addWidget(self.search_bar)
 
@@ -120,7 +123,7 @@ class TrashWidget(QWidget):
 
     def refresh(self) -> None:
         """Refreshes the trash view by querying the database."""
-        from presentation.dashboard import ACTIVE_THEME_MAP
+        from utils.constants import ACTIVE_THEME_MAP
 
         self.task_tree.clear()
         query = self.search_bar.text()

@@ -6,6 +6,7 @@ Keeps core logic DB-agnostic for easier testing and future upgrades.
 import logging
 import sqlite3
 
+from typing import List, Optional, Dict
 from data.DataBaseHandler import DataHandler
 from data.models import Task
 
@@ -67,7 +68,7 @@ class TaskManager:
             )
             return -1
 
-    def get_all_tasks(self, search_query: str = "") -> list:
+    def get_all_tasks(self, search_query: str = "") -> List[Task]:
         """Fetches all active tasks, optionally applying a keyword search."""
         try:
             return self._data_handler.get_all_tasks(search_query)
@@ -77,7 +78,7 @@ class TaskManager:
             )
             return []
 
-    def get_task_by_id(self, task_id: int):
+    def get_task_by_id(self, task_id: int) -> Optional[Task]:
         """Fetches a specific task by ID securely."""
         try:
             return self._data_handler.get_task_by_id(task_id)
@@ -112,7 +113,7 @@ class TaskManager:
         except sqlite3.Error:
             logger.error(f"Database Integrity Error on Update for Task {task.id}")
 
-    def get_deleted_tasks(self, search_query: str = "") -> list:
+    def get_deleted_tasks(self, search_query: str = "") -> List[Task]:
         """Fetches all tasks from the Trash securely, optionally applying a keyword search."""
         try:
             return self._data_handler.get_deleted_tasks(search_query)
@@ -138,7 +139,7 @@ class TaskManager:
                 f"Database Integrity Error on Permanent Delete for Task {task_id}"
             )
 
-    def get_task_stats(self, tasks_list: list = None) -> dict:
+    def get_task_stats(self, tasks_list: List[Task] = None) -> Dict:
         """Aggregates task counts for the analytics dashboard.
 
         If a list of tasks is provided, computes stats for that exact list
