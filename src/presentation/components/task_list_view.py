@@ -1,21 +1,21 @@
+from typing import Optional
+
+from PySide6.QtCore import QSize, Qt
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
-    QWidget,
-    QVBoxLayout,
-    QTreeWidget,
-    QTreeWidgetItem,
+    QFrame,
+    QHBoxLayout,
     QHeaderView,
     QLabel,
-    QHBoxLayout,
-    QFrame,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QVBoxLayout,
+    QWidget,
 )
-from PySide6.QtCore import Qt, QSize
-from PySide6.QtGui import QColor
+
 from utils.constants import ACTIVE_THEME_MAP, UIConstants
 from utils.sorter import TaskSorter
 from utils.strings import UIStrings
-
-
-from typing import Optional
 
 
 class TaskListView(QWidget):
@@ -135,7 +135,7 @@ class TaskListView(QWidget):
                 parent_grp = self.todo_group
 
             # --------- URGENCY LOGIC ---------
-            from PySide6.QtCore import QDateTime, QDate
+            from PySide6.QtCore import QDate, QDateTime
 
             def is_task_urgent(t):
                 if t.status == UIStrings.STATUS_DONE or not t.due_date:

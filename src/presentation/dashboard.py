@@ -1,11 +1,12 @@
-import os
 import logging
+import os
 from datetime import datetime
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QCalendarWidget,
+    QComboBox,
     QFrame,
     QGraphicsBlurEffect,
     QHBoxLayout,
@@ -17,18 +18,17 @@ from PySide6.QtWidgets import (
     QStackedWidget,
     QVBoxLayout,
     QWidget,
-    QComboBox,
 )
 
 from business.task_manager import TaskManager
 from data.models import Task
 from presentation.analytics_widget import AnalyticsWidget
-from presentation.task_editor_dialog import TaskEditorDialog
-from presentation.trash_widget import TrashWidget
+from presentation.components.kanban_board_view import KanbanBoardView
 
 # ISO 25010: Modular components and centralized constants
 from presentation.components.task_list_view import TaskListView
-from presentation.components.kanban_board_view import KanbanBoardView
+from presentation.task_editor_dialog import TaskEditorDialog
+from presentation.trash_widget import TrashWidget
 from utils.constants import UIConstants
 from utils.paths import get_asset_path
 from utils.strings import UIStrings
@@ -255,9 +255,11 @@ class DashboardInterface(QWidget):
         """)
         self.urgent_banner_btn.hide()
         self.urgent_banner_btn.clicked.connect(
-            lambda: self.search_bar.setText("")
-            if self.search_bar.text() == "is:urgent"
-            else self.search_bar.setText("is:urgent")
+            lambda: (
+                self.search_bar.setText("")
+                if self.search_bar.text() == "is:urgent"
+                else self.search_bar.setText("is:urgent")
+            )
         )
         task_section_layout.addWidget(self.urgent_banner_btn)
 
@@ -355,9 +357,11 @@ class DashboardInterface(QWidget):
         """)
         self.kanban_urgent_banner_btn.hide()
         self.kanban_urgent_banner_btn.clicked.connect(
-            lambda: self.kanban_search_bar.setText("")
-            if self.kanban_search_bar.text() == "is:urgent"
-            else self.kanban_search_bar.setText("is:urgent")
+            lambda: (
+                self.kanban_search_bar.setText("")
+                if self.kanban_search_bar.text() == "is:urgent"
+                else self.kanban_search_bar.setText("is:urgent")
+            )
         )
         kanban_page_layout.addWidget(self.kanban_urgent_banner_btn)
 
@@ -421,7 +425,7 @@ class DashboardInterface(QWidget):
         tasks = self.task_manager.get_all_tasks(db_query)
 
         # Urgency Logic
-        from PySide6.QtCore import QDateTime, QDate
+        from PySide6.QtCore import QDate, QDateTime
 
         def is_task_urgent(t):
             if t.status == UIStrings.STATUS_DONE or not t.due_date:
