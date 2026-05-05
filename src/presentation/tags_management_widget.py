@@ -294,6 +294,7 @@ class TagsManagementWidget(QWidget):
             return
 
         self.delete_btn.show()
+        self.delete_btn.setEnabled(True)
         if len(selected_items) == 1:
             self.delete_btn.setText("🗑️ Delete Selected Tag")
             tag = selected_items[0].data(Qt.ItemDataRole.UserRole)

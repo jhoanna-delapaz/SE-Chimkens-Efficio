@@ -5,7 +5,7 @@ from datetime import datetime
 
 import pytest
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtWidgets import QApplication, QMessageBox
+from PySide6.QtWidgets import QApplication, QMessageBox, QPushButton, QLabel
 
 # Path resolution MUST execute before src imports
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -14,7 +14,7 @@ sys.path.append(src_dir)
 
 # Tell Ruff to ignore sorting (I001) and ignore import position (E402) for these 3 files!
 from data.DataBaseHandler import init_db  # noqa: I001, E402
-from data.models import Task  # noqa: I001, E402
+from data.models import Task, Tag  # noqa: I001, E402
 from main import MainWindow  # noqa: I001, E402
 from business.task_manager import TaskManager  # noqa: I001, E402
 
@@ -302,8 +302,7 @@ def test_tc009_task_color_pastel_render(app_window, qtbot):
 
 def test_tc010_past_due_date_validation(app_window, qtbot):
     """TC-010: Task Due Date Validation (Past Date)"""
-    from PySide6.QtCore import QDate, QTimer
-    from PySide6.QtWidgets import QApplication
+    from PySide6.QtCore import QDate
 
     dashboard = app_window.dashboard
     todo_group = dashboard.task_list_view.task_tree.topLevelItem(0)
@@ -340,8 +339,6 @@ def test_tc010_past_due_date_validation(app_window, qtbot):
 
 def test_tc011_task_priority_selection(app_window, qtbot, monkeypatch):
     """TC-011: Task Priority Management correctly saves"""
-    from PySide6.QtCore import Qt, QTimer
-    from PySide6.QtWidgets import QApplication, QMessageBox
 
     # Auto-click OK on Success UI
     monkeypatch.setattr(
@@ -351,7 +348,6 @@ def test_tc011_task_priority_selection(app_window, qtbot, monkeypatch):
     )
 
     dashboard = app_window.dashboard
-    todo_group = dashboard.task_list_view.task_tree.topLevelItem(0)
 
     def interact_with_dialog():
         top_widget = QApplication.activeModalWidget()
@@ -387,8 +383,7 @@ def test_tc011_task_priority_selection(app_window, qtbot, monkeypatch):
 
 def test_tc012_toast_visibility_engine(app_window, qtbot):
     """TC-012: Ensure physics engine uses the premium OutBack bounce."""
-    from PySide6.QtCore import QEasingCurve, Qt, QTimer
-    from PySide6.QtWidgets import QApplication
+    from PySide6.QtCore import QEasingCurve
 
     dashboard = app_window.dashboard
 
@@ -906,3 +901,216 @@ def test_tc025_task_sorting_logic(app_window):
     # Sort by Priority (High is mapped to lower numerical value in PRIORITY_MAP)
     sorted_prio = TaskSorter.sort(tasks, "Priority")
     assert sorted_prio[0].title == "Sooner"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FT01: Task Labeling System
+# TC-026 → TC-030
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_tc026_tag_crud_management(app_window, qtbot, monkeypatch):
+    """[FT01] TC-026: Verify Tag Creation, Editing, and Deletion in Tags Management."""
+    dashboard = app_window.dashboard
+
+    # Navigate to Manage Tags
+    dashboard.set_mode("tags")
+    assert dashboard.current_mode == "tags"
+    tags_widget = dashboard.page_tags
+
+    # 1. Create a Tag
+    tags_widget.name_input.setText("Work")
+    # Select the first color button (Ocean Peach #6579BE)
+    qtbot.mouseClick(tags_widget.color_buttons[0], Qt.LeftButton)
+    qtbot.mouseClick(tags_widget.save_btn, Qt.LeftButton)
+
+    # Verify Tag exists in DB
+    all_tags = dashboard.task_manager.get_all_tags()
+    work_tag = next((t for t in all_tags if t.name == "Work"), None)
+    assert work_tag is not None
+    assert work_tag.color == "#6579BE"
+
+    # 2. Edit the Tag
+    tags_widget.tags_list.setCurrentRow(0)  # Select the tag we just created
+    tags_widget.name_input.setText("Office")
+    qtbot.mouseClick(
+        tags_widget.color_buttons[2], Qt.LeftButton
+    )  # Vibrant Orange #F54800
+    qtbot.mouseClick(tags_widget.save_btn, Qt.LeftButton)
+
+    all_tags = dashboard.task_manager.get_all_tags()
+    office_tag = next((t for t in all_tags if t.name == "Office"), None)
+    assert office_tag is not None
+    assert office_tag.color == "#F54800"
+    assert not any(t.name == "Work" for t in all_tags)
+
+    # 3. Delete the Tag
+    # Simulate the confirm dialog
+
+    monkeypatch.setattr(
+        QMessageBox,
+        "question",
+        lambda *args: QMessageBox.StandardButton.Yes,
+    )
+
+    # Ensure selection is processed
+    tags_widget.tags_list.item(0).setSelected(True)
+    qtbot.wait_until(
+        lambda: tags_widget.delete_btn.isVisible()
+        and tags_widget.delete_btn.isEnabled()
+    )
+
+    # Click the button
+    qtbot.mouseClick(tags_widget.delete_btn, Qt.LeftButton)
+
+    # Wait for the database to update
+    qtbot.wait_until(lambda: len(dashboard.task_manager.get_all_tags()) == 0)
+
+    assert len(dashboard.task_manager.get_all_tags()) == 0
+
+
+def test_tc027_task_tag_assignment_and_display(app_window):
+    """[FT01] TC-027: Verify assigning tags to a task and checking UI badges."""
+    dashboard = app_window.dashboard
+
+    # Setup: Create a tag and a task
+    dashboard.task_manager.add_tag(Tag(None, "Urgent", "#FF4D4D"))
+    task_id = dashboard.task_manager.add_task(
+        Task(
+            None,
+            "Tagged Task",
+            "Desc",
+            "Pending",
+            datetime.now(),
+            None,
+            "High",
+        )
+    )
+    dashboard.load_tasks()
+
+    # Find the task row in the tree
+    todo_group = dashboard.task_list_view.task_tree.topLevelItem(0)
+    task_row = todo_group.child(1)  # Index 1 is the task
+    tags_cell_widget = dashboard.task_list_view.task_tree.itemWidget(task_row, 2)
+    assert tags_cell_widget.findChild(QPushButton) is not None
+
+    # Mock the TagSelectMenu to simulate checking the tag
+
+    # We can't easily click inside the QMenu because it's a separate window in some OS
+    # Instead, we test the logic: _update_task_tags
+    urgent_tag = dashboard.task_manager.get_all_tags()[0]
+    dashboard.task_list_view._update_task_tags(
+        dashboard.task_manager.get_task_by_id(task_id), [urgent_tag]
+    )
+
+    # Verify DB update
+    updated_task = dashboard.task_manager.get_task_by_id(task_id)
+    assert len(updated_task.tags) == 1
+    assert updated_task.tags[0].name == "Urgent"
+
+    # Verify UI Badge
+    dashboard.load_tasks()
+    todo_group = dashboard.task_list_view.task_tree.topLevelItem(0)
+    task_row = todo_group.child(1)
+    tags_cell_widget = dashboard.task_list_view.task_tree.itemWidget(task_row, 2)
+    # The cell should now have a QLabel with "Urgent"
+    labels = tags_cell_widget.findChildren(QLabel)
+    assert any(lbl.text() == "Urgent" for lbl in labels)
+
+
+def test_tc028_tag_persistence_and_kanban(app_window):
+    """[FT01] TC-028: Verify tags persist and appear on Kanban cards."""
+    dashboard = app_window.dashboard
+
+    # Create tag and task with tag
+    tag = Tag(None, "Personal", "#9C27B0")
+    tag_id = dashboard.task_manager.add_tag(tag)
+    tag.id = tag_id
+
+    task = Task(
+        None,
+        "Kanban Tag Task",
+        "",
+        "Pending",
+        datetime.now(),
+        None,
+        "Low",
+        tags=[tag],
+    )
+    dashboard.task_manager.add_task(task)
+
+    # Switch to Kanban
+    dashboard.set_mode("kanban")
+    dashboard.load_tasks()
+
+    # Verify Kanban card has tag badge
+    todo_content = dashboard.kanban_board_view.todo_content
+    card = todo_content.itemAt(0).widget()
+    assert card.task.title == "Kanban Tag Task"
+
+    labels = card.findChildren(QLabel)
+    assert any(lbl.text() == "Personal" for lbl in labels)
+
+
+def test_tc029_tag_limit_enforcement(app_window):
+    """[FT01] TC-029: Verify that more than 5 tags are trimmed as per requirements."""
+    dashboard = app_window.dashboard
+
+    # Create 6 tags
+    tags = []
+    for i in range(6):
+        t_id = dashboard.task_manager.add_tag(Tag(None, f"Tag{i}", "#FFFFFF"))
+        tags.append(Tag(t_id, f"Tag{i}", "#FFFFFF"))
+
+    task = Task(None, "Limit Task", "", "Pending", datetime.now(), None, "Medium")
+    task_id = dashboard.task_manager.add_task(task)
+    task.id = task_id
+
+    # Try assigning 6 tags via the list view helper
+    dashboard.task_list_view._update_task_tags(task, tags)
+
+    # Verify only 5 were saved
+    final_task = dashboard.task_manager.get_task_by_id(task_id)
+    assert len(final_task.tags) == 5
+
+
+def test_tc030_tag_filtering_logic(app_window):
+    """[FT01] TC-030: Verify tag filtering isolates correct tasks."""
+    dashboard = app_window.dashboard
+
+    # Setup tags
+    tag_work = Tag(None, "Work", "#000000")
+    tag_work.id = dashboard.task_manager.add_tag(tag_work)
+    tag_home = Tag(None, "Home", "#000000")
+    tag_home.id = dashboard.task_manager.add_tag(tag_home)
+
+    # Setup tasks
+    dashboard.task_manager.add_task(
+        Task(None, "W1", "", "Pending", datetime.now(), None, "Medium", tags=[tag_work])
+    )
+    dashboard.task_manager.add_task(
+        Task(None, "H1", "", "Pending", datetime.now(), None, "Medium", tags=[tag_home])
+    )
+    dashboard.load_tasks()
+
+    # Initial state: 2 tasks (+1 header)
+    todo_group = dashboard.task_list_view.task_tree.topLevelItem(0)
+    assert todo_group.childCount() == 3
+
+    # Filter by "Work"
+    dashboard.handle_tag_filter_change(tag_work.id)
+
+    # Should only show W1 (+1 header)
+    todo_group = dashboard.task_list_view.task_tree.topLevelItem(0)
+    assert todo_group.childCount() == 2
+    assert (
+        "W1"
+        in dashboard.task_list_view.task_tree.itemWidget(todo_group.child(1), 0)
+        .findChild(QLabel)
+        .text()
+    )
+
+    # Clear filter
+    dashboard.handle_tag_filter_change(None)
+    todo_group = dashboard.task_list_view.task_tree.topLevelItem(0)
+    assert todo_group.childCount() == 3
