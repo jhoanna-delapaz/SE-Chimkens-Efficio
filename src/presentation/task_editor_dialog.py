@@ -21,7 +21,10 @@ from PySide6.QtWidgets import (
     QPushButton,
     QTextEdit,
     QVBoxLayout,
+    QWidget,
+    QSizePolicy,
 )
+from presentation.components.tag_select_menu import TagSelectMenu
 
 _DIALOG_STYLE = """
     QDialog {
@@ -196,6 +199,44 @@ class TaskEditorDialog(QDialog):
         layout.addLayout(grid)
         layout.addSpacing(10)
 
+        # 3.5 Tags Section
+        layout.addWidget(QLabel("Tags (Select up to 5)"))
+
+        # Tags control row (Button)
+        self.tags_control_layout = QHBoxLayout()
+        self.tags_select_btn = QPushButton("🏷️ Select Tags")
+        self.tags_select_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.tags_select_btn.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(255,255,255,0.1); color: white; border-radius: 6px; padding: 6px 12px; border: 1px solid rgba(255,255,255,0.2); font-weight: bold;
+            }
+            QPushButton:hover { background-color: rgba(255,255,255,0.15); border: 1px solid #6579BE; }
+        """)
+        self.tags_select_btn.clicked.connect(self._show_tag_menu)
+        self.tags_control_layout.addWidget(self.tags_select_btn)
+        self.tags_control_layout.addStretch()
+        layout.addLayout(self.tags_control_layout)
+
+        # Tags display container
+        self.tags_container = QWidget()
+        self.tags_container.setSizePolicy(
+            QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.MinimumExpanding
+        )
+        self.tags_container.setMinimumHeight(40)
+        self.tags_layout = QHBoxLayout(self.tags_container)
+        self.tags_layout.setContentsMargins(0, 0, 0, 0)
+        self.tags_layout.setSpacing(8)
+        self.tags_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        layout.addWidget(self.tags_container)
+
+        self.selected_tags = []
+        if task and hasattr(task, "tags") and task.tags:
+            self.selected_tags = list(task.tags)
+
+        self._render_selected_tags()
+
+        layout.addSpacing(10)
+
         # 4. Action Footer (Save / Cancel)
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
@@ -226,6 +267,61 @@ class TaskEditorDialog(QDialog):
         btn_layout.addWidget(self.save_btn)
 
         layout.addLayout(btn_layout)
+
+    def _show_tag_menu(self):
+        parent_dash = self.parent()
+        all_tags = []
+        if hasattr(parent_dash, "task_manager"):
+            all_tags = parent_dash.task_manager.get_all_tags()
+
+        menu = TagSelectMenu(all_tags, self.selected_tags, self)
+        menu.tags_changed.connect(self._on_tags_changed)
+
+        # Show menu below the button
+        pos = self.tags_select_btn.mapToGlobal(QPoint(0, self.tags_select_btn.height()))
+        menu.exec(pos)
+
+    def _on_tags_changed(self, new_tags):
+        if len(new_tags) > 5:
+            self.toast.show_toast("Maximum 5 tags allowed! Only saving first 5.")
+            self.selected_tags = new_tags[:5]
+        else:
+            self.selected_tags = new_tags
+        self._render_selected_tags()
+
+    def _render_selected_tags(self):
+        # Clear existing
+        while self.tags_layout.count():
+            item = self.tags_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        for tag in self.selected_tags:
+            btn = QPushButton(tag.name)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+
+            # Smart Contrast for text
+            text_color = "#FFFFFF"
+            try:
+                hex_c = tag.color.lstrip("#")
+                r, g, b = int(hex_c[0:2], 16), int(hex_c[2:4], 16), int(hex_c[4:6], 16)
+                luma = 0.299 * r + 0.587 * g + 0.114 * b
+                text_color = "#000000" if luma > 160 else "#FFFFFF"
+            except Exception:
+                pass
+
+            btn.setStyleSheet(f"""
+                QPushButton {{ background-color: {tag.color}; color: {text_color}; border-radius: 4px; padding: 4px 10px; border: none; font-weight: bold; font-size: 11px; }}
+                QPushButton:hover {{ opacity: 0.8; }}
+            """)
+            btn.clicked.connect(lambda checked, t=tag: self._remove_tag(t))
+            self.tags_layout.addWidget(btn)
+
+        self.tags_layout.addStretch()
+
+    def _remove_tag(self, tag):
+        self.selected_tags = [t for t in self.selected_tags if t.id != tag.id]
+        self._render_selected_tags()
 
     def _get_selected_datetime(self):
         """Helper to combine the DateEdit and TimeComboBox into a single QDateTime"""
@@ -279,7 +375,8 @@ class TaskEditorDialog(QDialog):
             "due_date": self._get_selected_datetime().toString(Qt.DateFormat.ISODate),
             "priority": self.priority_input.currentText(),
             "status": self.status_input.currentText(),
-            "color": self.color_combo.currentData(),  # Extract the hidden Hex Code
+            "color": self.color_combo.currentData(),
+            "tags": self.selected_tags,
         }
 
 

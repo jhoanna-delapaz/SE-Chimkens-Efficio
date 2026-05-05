@@ -152,6 +152,40 @@ class KanbanCard(QFrame):
             footer_layout.addStretch()
             layout.addLayout(footer_layout)
 
+        if hasattr(task, "tags") and task.tags:
+            tags_layout = QHBoxLayout()
+            tags_layout.setContentsMargins(0, 4, 0, 0)
+            tags_layout.setSpacing(4)
+            displayed_tags = task.tags[:3]
+            for tag in displayed_tags:
+                tag_badge = QLabel(tag.name)
+                t_color = "#FFFFFF"
+                try:
+                    hex_c = tag.color.lstrip("#")
+                    r, g, b = (
+                        int(hex_c[0:2], 16),
+                        int(hex_c[2:4], 16),
+                        int(hex_c[4:6], 16),
+                    )
+                    luma = 0.299 * r + 0.587 * g + 0.114 * b
+                    t_color = "#000000" if luma > 160 else "#FFFFFF"
+                except Exception:
+                    pass
+                tag_badge.setStyleSheet(
+                    f"background-color: {tag.color}; color: {t_color}; border-radius: 4px; padding: 2px 6px; font-size: 10px; font-weight: bold;"
+                )
+                tags_layout.addWidget(tag_badge)
+
+            if len(task.tags) > 3:
+                more_lbl = QLabel(f"+{len(task.tags) - 3}")
+                more_lbl.setStyleSheet(
+                    "color: #A0A0A0; font-size: 11px; font-weight: bold;"
+                )
+                tags_layout.addWidget(more_lbl)
+
+            tags_layout.addStretch()
+            layout.addLayout(tags_layout)
+
         # Tooltip Countdown
         from utils.sorter import TaskSorter
 

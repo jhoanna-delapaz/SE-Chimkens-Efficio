@@ -29,6 +29,7 @@ from presentation.components.kanban_board_view import KanbanBoardView
 from presentation.components.task_list_view import TaskListView
 from presentation.task_editor_dialog import TaskEditorDialog
 from presentation.trash_widget import TrashWidget
+from presentation.tags_management_widget import TagsManagementWidget
 from utils.constants import UIConstants
 from utils.paths import get_asset_path
 from utils.strings import UIStrings
@@ -156,7 +157,7 @@ class DashboardInterface(QWidget):
         self.sidebar_layout.addLayout(toggle_container)
 
         self.sidebar_options = []
-        for text in ["Dashboard", "Kanban Board", "Trash Bin"]:
+        for text in ["Dashboard", "Kanban Board", "Manage Tags", "Trash Bin"]:
             btn = QPushButton("")
             btn.setFixedHeight(40)
             btn.setStyleSheet("""
@@ -174,6 +175,8 @@ class DashboardInterface(QWidget):
                 btn.clicked.connect(lambda: self.set_mode("active"))
             elif text == "Kanban Board":
                 btn.clicked.connect(lambda: self.set_mode("kanban"))
+            elif text == "Manage Tags":
+                btn.clicked.connect(lambda: self.set_mode("tags"))
             elif text == "Trash Bin":
                 btn.clicked.connect(lambda: self.set_mode("trash"))
 
@@ -213,6 +216,21 @@ class DashboardInterface(QWidget):
         """)
         self.sort_combo.currentTextChanged.connect(self.handle_sort_change)
         header_layout.addWidget(self.sort_combo)
+
+        # Tag Filter Dropdown
+        self.tag_filter_combo = QComboBox()
+        self.tag_filter_combo.setFixedWidth(140)
+        self.tag_filter_combo.setStyleSheet("""
+            QComboBox {
+                background-color: rgba(255,255,255,0.1);
+                color: white; border-radius: 10px; padding: 5px; border: 1px solid rgba(255,255,255,0.2);
+            }
+            QComboBox:hover { background-color: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.4); }
+        """)
+        self.tag_filter_combo.currentIndexChanged.connect(
+            lambda: self.handle_tag_filter_change(self.tag_filter_combo.currentData())
+        )
+        header_layout.addWidget(self.tag_filter_combo)
 
         self.search_bar = QLineEdit()
         self.search_bar.setPlaceholderText("Search tasks...")
@@ -318,6 +336,23 @@ class DashboardInterface(QWidget):
         self.kanban_sort_combo.currentTextChanged.connect(self.handle_sort_change)
         kanban_header.addWidget(self.kanban_sort_combo)
 
+        # Kanban Tag Filter
+        self.kanban_tag_filter_combo = QComboBox()
+        self.kanban_tag_filter_combo.setFixedWidth(140)
+        self.kanban_tag_filter_combo.setStyleSheet("""
+            QComboBox {
+                background-color: rgba(255,255,255,0.1);
+                color: white; border-radius: 10px; padding: 5px; border: 1px solid rgba(255,255,255,0.2);
+            }
+            QComboBox:hover { background-color: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.4); }
+        """)
+        self.kanban_tag_filter_combo.currentIndexChanged.connect(
+            lambda: self.handle_tag_filter_change(
+                self.kanban_tag_filter_combo.currentData()
+            )
+        )
+        kanban_header.addWidget(self.kanban_tag_filter_combo)
+
         self.kanban_search_bar = QLineEdit()
         self.kanban_search_bar.setPlaceholderText("Search kanban...")
         self.kanban_search_bar.setFixedWidth(200)
@@ -374,9 +409,57 @@ class DashboardInterface(QWidget):
         self.content_stack.addWidget(self.page_kanban)
         self.page_trash = TrashWidget(self)
         self.content_stack.addWidget(self.page_trash)
+        self.page_tags = TagsManagementWidget(self, self.task_manager)
+        self.content_stack.addWidget(self.page_tags)
 
         self.main_layout.addWidget(self.sidebar)
         self.main_layout.addWidget(self.content_stack, stretch=1)
+
+        self.current_tag_filter = None
+        self.populate_tag_filters()
+
+    def populate_tag_filters(self):
+        current_active = (
+            self.tag_filter_combo.currentData()
+            if hasattr(self, "tag_filter_combo")
+            else None
+        )
+        current_kanban = (
+            self.kanban_tag_filter_combo.currentData()
+            if hasattr(self, "kanban_tag_filter_combo")
+            else None
+        )
+
+        tags = self.task_manager.get_all_tags()
+
+        for combo, current_sel in [
+            (self.tag_filter_combo, current_active),
+            (self.kanban_tag_filter_combo, current_kanban),
+        ]:
+            if not combo:
+                continue
+            combo.blockSignals(True)
+            combo.clear()
+            combo.addItem("All Tags", None)
+            for tag in tags:
+                combo.addItem(f"🏷️ {tag.name}", tag.id)
+
+            if current_sel is not None:
+                idx = combo.findData(current_sel)
+                if idx >= 0:
+                    combo.setCurrentIndex(idx)
+            combo.blockSignals(False)
+
+    def handle_tag_filter_change(self, tag_id):
+        self.current_tag_filter = tag_id
+        for combo in [self.tag_filter_combo, self.kanban_tag_filter_combo]:
+            if combo:
+                combo.blockSignals(True)
+                idx = combo.findData(tag_id)
+                if idx >= 0:
+                    combo.setCurrentIndex(idx)
+                combo.blockSignals(False)
+        self.load_tasks()
 
     def toggle_sidebar(self):
         """Animated Sidebar functionality"""
@@ -441,6 +524,13 @@ class DashboardInterface(QWidget):
 
         if query == "is:urgent":
             tasks = [t for t in tasks if is_task_urgent(t)]
+
+        if hasattr(self, "current_tag_filter") and self.current_tag_filter is not None:
+            tasks = [
+                t
+                for t in tasks
+                if any(tag.id == self.current_tag_filter for tag in t.tags)
+            ]
 
         # Update Banners
         urgent_count = sum(1 for t in tasks if is_task_urgent(t))
@@ -560,6 +650,7 @@ class DashboardInterface(QWidget):
                     due_date=data["due_date"],
                     priority=data["priority"],
                     color=data.get("color", "#333333"),
+                    tags=data.get("tags", []),
                 )
                 self.task_manager.update_task(updated_task)
                 self.load_tasks()
@@ -599,7 +690,8 @@ class DashboardInterface(QWidget):
                 created_at=datetime.now(),
                 due_date=data["due_date"],
                 priority=data["priority"],
-                color=data.get("color", "#333333"),  # NEW
+                color=data.get("color", "#333333"),
+                tags=data.get("tags", []),
             )
 
             # Save to DB safely
@@ -696,15 +788,22 @@ class DashboardInterface(QWidget):
             self.add_btn.hide()
             self.content_stack.setCurrentIndex(2)  # TrashWidget
             self.page_trash.refresh()
+        elif mode == "tags":
+            self.title_label.setText("Manage Tags")
+            self.add_btn.hide()
+            self.content_stack.setCurrentIndex(3)  # TagsWidget
+            self.page_tags.refresh()
         elif mode == "active":
             self.title_label.setText(UIStrings.NAV_TASKS)
             self.add_btn.show()
             self.content_stack.setCurrentIndex(0)  # Dashboard Profile
+            self.populate_tag_filters()
             self.load_tasks()
         elif mode == "kanban":
             # Swaps the screen purely to the massive Kanban Board!
             self.title_label.setText(UIStrings.NAV_KANBAN)
             self.content_stack.setCurrentIndex(1)
+            self.populate_tag_filters()
             self.load_tasks()
 
     def sync_group_arrow(self, item):
