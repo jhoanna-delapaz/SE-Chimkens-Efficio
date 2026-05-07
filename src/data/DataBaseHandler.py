@@ -1,7 +1,7 @@
 import sqlite3
 from sqlite3 import Error
 from typing import Optional, List
-from data.models import Task, Tag
+from data.models import Task, Tag, TaskAttachment
 
 
 def create_connection(db_file: str) -> Optional[sqlite3.Connection]:
@@ -94,6 +94,14 @@ def init_db(db_file: str) -> None:
                                         PRIMARY KEY (task_id, tag_id)
                                     ); """
 
+    sql_create_attachments_table = """ CREATE TABLE IF NOT EXISTS task_attachments (
+                                            id integer PRIMARY KEY,
+                                            task_id integer NOT NULL,
+                                            file_path text NOT NULL,
+                                            file_name text NOT NULL,
+                                            FOREIGN KEY (task_id) REFERENCES tasks (id) ON DELETE CASCADE
+                                        ); """
+
     # create a database connection
     conn = create_connection(database)
 
@@ -104,6 +112,7 @@ def init_db(db_file: str) -> None:
             create_table(conn, sql_create_user_profile_table)
             create_table(conn, sql_create_tags_table)
             create_table(conn, sql_create_task_tags_table)
+            create_table(conn, sql_create_attachments_table)
 
             # ISO 25010 Reliability: Safely attempt to migrate older databases
             try:
@@ -177,6 +186,37 @@ class DataHandler:
 
         return tasks
 
+    def _attach_attachments_to_tasks(self, tasks: List[Task]) -> List[Task]:
+        if not tasks:
+            return tasks
+
+        task_ids = [t.id for t in tasks]
+        placeholders = ",".join("?" * len(task_ids))
+
+        cur = self._conn.cursor()
+        cur.execute(
+            f"""
+            SELECT id, task_id, file_path, file_name
+            FROM task_attachments
+            WHERE task_id IN ({placeholders})
+        """,
+            task_ids,
+        )
+
+        attachments_by_task = {task_id: [] for task_id in task_ids}
+        for row in cur.fetchall():
+            att_id, task_id, file_path, file_name = row
+            attachments_by_task[task_id].append(
+                TaskAttachment(
+                    id=att_id, task_id=task_id, file_path=file_path, file_name=file_name
+                )
+            )
+
+        for task in tasks:
+            task.attachments = attachments_by_task.get(task.id, [])
+
+        return tasks
+
     def add_tag(self, tag: Tag) -> int:
         cur = self._conn.cursor()
         try:
@@ -232,6 +272,13 @@ class DataHandler:
                     (task_id, tag.id),
                 )
 
+        if task.attachments:
+            for att in task.attachments:
+                cur.execute(
+                    "INSERT INTO task_attachments (task_id, file_path, file_name) VALUES (?, ?, ?)",
+                    (task_id, att.file_path, att.file_name),
+                )
+
         self._conn.commit()
         return task_id
 
@@ -257,7 +304,8 @@ class DataHandler:
 
         rows = cur.fetchall()
         tasks = [_row_to_task(r) for r in rows]
-        return self._attach_tags_to_tasks(tasks)
+        tasks = self._attach_tags_to_tasks(tasks)
+        return self._attach_attachments_to_tasks(tasks)
 
     def get_deleted_tasks(self, search_query: str = "") -> List[Task]:
         """Fetches TRASH tasks, optionally filtered by a search keyword."""
@@ -278,7 +326,8 @@ class DataHandler:
 
         rows = cur.fetchall()
         tasks = [_row_to_task(r) for r in rows]
-        return self._attach_tags_to_tasks(tasks)
+        tasks = self._attach_tags_to_tasks(tasks)
+        return self._attach_attachments_to_tasks(tasks)
 
     def get_task_by_id(self, task_id: int) -> Optional[Task]:
         cur = self._conn.cursor()
@@ -287,7 +336,8 @@ class DataHandler:
         if not row:
             return None
         task = _row_to_task(row)
-        return self._attach_tags_to_tasks([task])[0]
+        task = self._attach_tags_to_tasks([task])[0]
+        return self._attach_attachments_to_tasks([task])[0]
 
     def delete_task(self, task_id: int) -> None:
         """Soft-deletes a task by moving it to the Trash."""
@@ -321,6 +371,13 @@ class DataHandler:
                 cur.execute(
                     "INSERT INTO task_tags (task_id, tag_id) VALUES (?, ?)",
                     (task.id, tag.id),
+                )
+        cur.execute("DELETE FROM task_attachments WHERE task_id=?", (task.id,))
+        if task.attachments:
+            for att in task.attachments:
+                cur.execute(
+                    "INSERT INTO task_attachments (task_id, file_path, file_name) VALUES (?, ?, ?)",
+                    (task.id, att.file_path, att.file_name),
                 )
         self._conn.commit()
 

@@ -5,6 +5,14 @@ from typing import List
 
 
 @dataclass
+class TaskAttachment:
+    id: Optional[int]
+    task_id: int
+    file_path: str
+    file_name: str
+
+
+@dataclass
 class Tag:
     id: Optional[int]
     name: str
@@ -22,11 +30,14 @@ class Task:
     priority: str
     is_deleted: int = 0
     color: str = "#FFFFFF"  # Default white HEX
-    tags: List[Tag] = None  # NEW: List of associated tags
+    tags: List[Tag] = None  # List of associated tags
+    attachments: List[TaskAttachment] = None  # NEW: List of file attachments
 
     def __post_init__(self):
         if self.tags is None:
             self.tags = []
+        if self.attachments is None:
+            self.attachments = []
 
 
 @dataclass

@@ -1,3 +1,4 @@
+import os
 from PySide6.QtCore import (
     QDate,
     QDateTime,
@@ -8,7 +9,7 @@ from PySide6.QtCore import (
     QTime,
     QTimer,
 )
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QPixmap
 from PySide6.QtWidgets import (
     QComboBox,
     QDateEdit,
@@ -23,7 +24,11 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
     QSizePolicy,
+    QScrollArea,
+    QFrame,
+    QFileDialog,
 )
+from data.models import TaskAttachment
 from presentation.components.tag_select_menu import TagSelectMenu
 
 _DIALOG_STYLE = """
@@ -237,6 +242,49 @@ class TaskEditorDialog(QDialog):
 
         layout.addSpacing(10)
 
+        # 3.6 Attachments Section
+        layout.addWidget(QLabel("Attachments (Optional, max 5)"))
+
+        self.attach_control_layout = QHBoxLayout()
+        self.attach_btn = QPushButton("📎 Add Images")
+        self.attach_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.attach_btn.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(255,255,255,0.1); color: white; border-radius: 6px; padding: 6px 12px; border: 1px solid rgba(255,255,255,0.2); font-weight: bold;
+            }
+            QPushButton:hover { background-color: rgba(255,255,255,0.15); border: 1px solid #6579BE; }
+        """)
+        self.attach_btn.clicked.connect(self._select_attachments)
+        self.attach_control_layout.addWidget(self.attach_btn)
+        self.attach_control_layout.addStretch()
+        layout.addLayout(self.attach_control_layout)
+
+        # Horizontal Scroll Area for thumbnails
+        self.attach_scroll = QScrollArea()
+        self.attach_scroll.setWidgetResizable(True)
+        self.attach_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.attach_scroll.setStyleSheet("background-color: transparent;")
+        self.attach_scroll.setFixedHeight(100)
+
+        self.attach_container = QWidget()
+        self.attach_layout = QHBoxLayout(self.attach_container)
+        self.attach_layout.setContentsMargins(0, 5, 0, 5)
+        self.attach_layout.setSpacing(10)
+        self.attach_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.attach_scroll.setWidget(self.attach_container)
+        layout.addWidget(self.attach_scroll)
+
+        self.attachments = []
+        if task and hasattr(task, "attachments") and task.attachments:
+            self.attachments = list(task.attachments)
+
+        self._render_attachments()
+
+        # Enable Drag & Drop
+        self.setAcceptDrops(True)
+
+        layout.addSpacing(10)
+
         # 4. Action Footer (Save / Cancel)
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
@@ -323,6 +371,121 @@ class TaskEditorDialog(QDialog):
         self.selected_tags = [t for t in self.selected_tags if t.id != tag.id]
         self._render_selected_tags()
 
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+
+    def dropEvent(self, event):
+        urls = event.mimeData().urls()
+        files = [url.toLocalFile() for url in urls]
+        self._add_files(files)
+
+    def _select_attachments(self):
+        files, _ = QFileDialog.getOpenFileNames(
+            self, "Select Files", "", "Files (*.png *.jpg *.jpeg *.bmp *.gif *.pdf)"
+        )
+        if files:
+            self._add_files(files)
+
+    def _add_files(self, file_paths):
+        parent_dash = self.parent()
+        if not hasattr(parent_dash, "task_manager"):
+            return
+
+        SUPPORTED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".gif", ".pdf"}
+        for path in file_paths:
+            if len(self.attachments) >= 5:
+                self.toast.show_toast("Maximum 5 attachments allowed!")
+                break
+
+            ext = os.path.splitext(path)[1].lower()
+            if ext not in SUPPORTED_EXTENSIONS:
+                self.toast.show_toast(f"Unsupported type: {ext}")
+                continue
+
+            # Save file via task manager
+            result = parent_dash.task_manager.save_attachment(path)
+            if result:
+                new_path, original_name = result
+                self.attachments.append(
+                    TaskAttachment(
+                        id=None,
+                        task_id=self.task.id if self.task else -1,
+                        file_path=new_path,
+                        file_name=original_name,
+                    )
+                )
+            else:
+                self.toast.show_toast(f"Failed to add image: {os.path.basename(path)}")
+
+        self._render_attachments()
+
+    def _render_attachments(self):
+        # Clear existing
+        while self.attach_layout.count():
+            item = self.attach_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        for att in self.attachments:
+            thumb_widget = QWidget()
+            thumb_widget.setFixedSize(80, 80)
+            thumb_widget.setStyleSheet("""
+                QWidget { background-color: rgba(255,255,255,0.05); border-radius: 6px; }
+            """)
+            thumb_layout = QVBoxLayout(thumb_widget)
+            thumb_layout.setContentsMargins(0, 0, 0, 0)
+
+            img_label = QLabel()
+            img_label.setFixedSize(80, 80)
+            img_label.setScaledContents(True)
+            if att.file_path.lower().endswith(".pdf"):
+                img_label.setText("PDF")
+                img_label.setStyleSheet("""
+                    QLabel {
+                        background-color: #EE2222; color: white; border-radius: 6px;
+                        font-weight: bold; font-size: 16px; border: 1px solid rgba(255,255,255,0.2);
+                    }
+                """)
+                img_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            else:
+                pixmap = QPixmap(att.file_path)
+                if not pixmap.isNull():
+                    img_label.setPixmap(
+                        pixmap.scaled(
+                            80, 80, Qt.AspectRatioMode.KeepAspectRatioByExpanding
+                        )
+                    )
+                else:
+                    img_label.setText("🖼️")
+                    img_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            thumb_layout.addWidget(img_label)
+
+            # Close button overlay
+            del_btn = QPushButton("✕", thumb_widget)
+            del_btn.setFixedSize(20, 20)
+            del_btn.move(60, 0)
+            del_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            del_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: rgba(0,0,0,0.6); color: white; border-radius: 10px; font-weight: bold; border: none;
+                }
+                QPushButton:hover { background-color: #F54800; }
+            """)
+            del_btn.clicked.connect(lambda checked, a=att: self._remove_attachment(a))
+
+            self.attach_layout.addWidget(thumb_widget)
+
+        self.attach_layout.addStretch()
+
+    def _remove_attachment(self, attachment):
+        self.attachments.remove(attachment)
+        # Note: We don't delete the physical file yet,
+        # in case the user cancels the dialog.
+        # Or we could, but then we'd have to manage undo.
+        # Requirement says "remove or replace", so this is fine for now.
+        self._render_attachments()
+
     def _get_selected_datetime(self):
         """Helper to combine the DateEdit and TimeComboBox into a single QDateTime"""
         d = self.date_input.date()
@@ -377,6 +540,7 @@ class TaskEditorDialog(QDialog):
             "status": self.status_input.currentText(),
             "color": self.color_combo.currentData(),
             "tags": self.selected_tags,
+            "attachments": self.attachments,
         }
 
 

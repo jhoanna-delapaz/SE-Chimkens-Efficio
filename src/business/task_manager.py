@@ -6,6 +6,9 @@ Keeps core logic DB-agnostic for easier testing and future upgrades.
 import logging
 import sqlite3
 
+import os
+import shutil
+import uuid
 from typing import List, Optional, Dict
 from data.DataBaseHandler import DataHandler
 from data.models import Task, Tag
@@ -26,6 +29,11 @@ class TaskManager:
     def __init__(self, db_file: str):
         self.db_file = db_file
         self._data_handler = DataHandler(db_file)
+        # Setup attachments directory relative to DB file
+        db_dir = os.path.dirname(os.path.abspath(db_file))
+        self.attachments_dir = os.path.join(db_dir, ".efficio_attachments")
+        if not os.path.exists(self.attachments_dir):
+            os.makedirs(self.attachments_dir)
 
     def _validate_task(self, task: Task) -> bool:
         """Validates task integrity to prevent malicious or malformed injections."""
@@ -161,13 +169,43 @@ class TaskManager:
             logger.error(f"Database Integrity Error on Restore for Task {task_id}")
 
     def permanently_delete_task(self, task_id: int) -> None:
-        """Permanently obliterates a task from storage."""
+        """Permanently obliterates a task and its attachments from storage."""
         try:
+            task = self.get_task_by_id(task_id)
+            if task and task.attachments:
+                for att in task.attachments:
+                    try:
+                        if os.path.exists(att.file_path):
+                            os.remove(att.file_path)
+                    except Exception as e:
+                        logger.error(f"Failed to delete attachment file: {e}")
+
             self._data_handler.permanently_delete_task(task_id)
         except sqlite3.Error:
             logger.error(
                 f"Database Integrity Error on Permanent Delete for Task {task_id}"
             )
+
+    def save_attachment(self, source_path: str) -> Optional[tuple]:
+        """
+        Copies a file to the internal attachments directory.
+        Returns (new_path, original_name) or None on failure.
+        """
+        try:
+            if not os.path.exists(source_path) or not os.path.isfile(source_path):
+                return None
+
+            file_name = os.path.basename(source_path)
+            # Generate unique name to avoid collisions
+            ext = os.path.splitext(file_name)[1]
+            unique_name = f"{uuid.uuid4()}{ext}"
+            dest_path = os.path.join(self.attachments_dir, unique_name)
+
+            shutil.copy2(source_path, dest_path)
+            return dest_path, file_name
+        except Exception as e:
+            logger.error(f"Attachment Save Error: {e}")
+            return None
 
     def get_task_stats(self, tasks_list: List[Task] = None) -> Dict:
         """Aggregates task counts for the analytics dashboard.
