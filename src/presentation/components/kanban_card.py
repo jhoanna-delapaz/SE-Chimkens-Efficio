@@ -1,4 +1,4 @@
-from PySide6.QtCore import QSize, Qt, QUrl
+from PySide6.QtCore import QDate, QDateTime, QSize, Qt, QUrl
 from PySide6.QtGui import QColor, QKeyEvent, QPixmap
 from PySide6.QtWidgets import (
     QDialog,
@@ -70,7 +70,6 @@ class KanbanCard(QFrame):
             return "".join(shattered_parts)
 
         # --------- URGENCY BORDER OVERRIDE ---------
-        from PySide6.QtCore import QDate, QDateTime
 
         def is_task_urgent(t):
             if t.status == UIStrings.STATUS_DONE or not t.due_date:
@@ -171,8 +170,6 @@ class KanbanCard(QFrame):
             layout.addWidget(desc_lbl)
 
         if task.due_date:
-            from PySide6.QtCore import QDate, QDateTime
-
             due_str = str(task.due_date).strip()
             parsed_dt = QDateTime.fromString(due_str, Qt.DateFormat.ISODate)
             if parsed_dt.isValid():

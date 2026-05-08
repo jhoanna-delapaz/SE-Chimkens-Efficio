@@ -41,6 +41,17 @@ class Task:
 
 
 @dataclass
+class ActivityLog:
+    id: Optional[int]
+    task_id: Optional[int]
+    task_title: str
+    action: str
+    details: str
+    timestamp: datetime
+    snapshot: Optional[str] = None  # JSON string of previous state for revert
+
+
+@dataclass
 class UserProfile:
     id: Optional[int]
     name: str
