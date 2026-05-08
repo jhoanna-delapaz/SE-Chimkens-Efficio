@@ -13,7 +13,7 @@ src_dir = os.path.join(current_dir, "..", "..", "src")
 sys.path.append(src_dir)
 
 # Tell Ruff to ignore sorting (I001) and ignore import position (E402) for these 3 files!
-from data.DataBaseHandler import init_db  # noqa: I001, E402
+from data.database_handler import init_db  # noqa: I001, E402
 from data.models import Task, Tag, TaskAttachment  # noqa: I001, E402
 from main import MainWindow  # noqa: I001, E402
 from business.task_manager import TaskManager  # noqa: I001, E402
@@ -76,7 +76,10 @@ def test_tc001_add_task_success(app_window, qtbot, monkeypatch):
     assert todo_group.childCount() == 2  # 1 header row + 1 physical task row
 
     task_row = todo_group.child(1)
-    assert "Submit Project" in task_row.text(0)
+    # Verify title via the custom widget overlay (QLabel)
+    widget = dashboard.task_list_view.task_tree.itemWidget(task_row, 0)
+    title_label = widget.findChild(QLabel)
+    assert "Submit Project" in title_label.text()
 
 
 def test_tc002_add_task_empty_title_validation(app_window, qtbot):
@@ -529,7 +532,12 @@ def test_tc015_urgent_filter_isolates_tasks(app_window, qtbot):
     todo_group = dashboard.task_list_view.task_tree.topLevelItem(0)
     # Only 1 urgent task should appear (header + 1 task = 2 children)
     assert todo_group.childCount() == 2
-    assert "Overdue Report" in todo_group.child(1).text(0)
+
+    # Verify title via the custom widget overlay
+    task_row = todo_group.child(1)
+    widget = dashboard.task_list_view.task_tree.itemWidget(task_row, 0)
+    title_label = widget.findChild(QLabel)
+    assert "Overdue Report" in title_label.text()
 
     # Clear the filter and verify both tasks reappear
     dashboard.search_bar.setText("")

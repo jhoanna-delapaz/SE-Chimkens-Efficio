@@ -421,22 +421,23 @@ class DataHandler:
         )
         self._conn.commit()
 
-    def run_auto_cleanup(self) -> dict:
+    def run_auto_cleanup(
+        self,
+        archive_cutoff: str,
+        trash_cutoff: str,
+        perm_delete_cutoff: str,
+        log_threshold: str,
+        now_serialized: str,
+    ) -> dict:
         """
         FT05: 3-Stage Lifecycle Cleanup.
-        1. Completed tasks (>3 days old) -> Archive.
-        2. Archived tasks (>14 days old) -> Trash (soft delete).
-        3. Trash tasks (>14 days old) -> Permanently deleted.
-        Returns a count dict for logging.
+        Executes cleanup based on provided cutoff dates.
+        ISO 25010: Improves Maintainability by separating business rules (timeframes) from execution.
         """
-        from datetime import datetime, timedelta
-
-        now = datetime.now()
         counts = {"archived": 0, "sent_to_trash": 0, "permanently_deleted": 0}
         cur = self._conn.cursor()
 
         # Stage 1: Archive old Completed tasks
-        cutoff_archive = _serialize_for_sqlite(now - timedelta(days=3))
         cur.execute(
             """
             UPDATE tasks SET is_archived = 1, archived_at = ?
@@ -445,31 +446,29 @@ class DataHandler:
             AND (is_deleted = 0 OR is_deleted IS NULL)
             AND created_at <= ?
             """,
-            (_serialize_for_sqlite(now), cutoff_archive),
+            (now_serialized, archive_cutoff),
         )
         counts["archived"] = cur.rowcount
 
         # Stage 2: Send old Archived tasks to Trash (soft delete)
-        cutoff_trash = _serialize_for_sqlite(now - timedelta(days=14))
         cur.execute(
             """
             UPDATE tasks SET is_deleted = 1, deleted_at = ?, is_archived = 0
             WHERE is_archived = 1
             AND archived_at IS NOT NULL AND archived_at <= ?
             """,
-            (_serialize_for_sqlite(now), cutoff_trash),
+            (now_serialized, trash_cutoff),
         )
         counts["sent_to_trash"] = cur.rowcount
 
         # Stage 3: Permanently delete old Trash tasks
-        cutoff_perm = _serialize_for_sqlite(now - timedelta(days=14))
         cur.execute(
             """
             SELECT id FROM tasks
             WHERE is_deleted = 1
             AND deleted_at IS NOT NULL AND deleted_at <= ?
             """,
-            (cutoff_perm,),
+            (perm_delete_cutoff,),
         )
         ids_to_delete = [row[0] for row in cur.fetchall()]
         for task_id in ids_to_delete:
@@ -478,8 +477,7 @@ class DataHandler:
             cur.execute("DELETE FROM tasks WHERE id=?", (task_id,))
         counts["permanently_deleted"] = len(ids_to_delete)
 
-        # Stage 4: Cleanup Activity Logs older than 30 days
-        log_threshold = _serialize_for_sqlite(now - timedelta(days=30))
+        # Stage 4: Cleanup Activity Logs
         cur.execute(
             "DELETE FROM activity_logs WHERE timestamp < ?",
             (log_threshold,),

@@ -35,6 +35,7 @@ from presentation.activity_log_widget import ActivityLogWidget
 from presentation.archive_widget import ArchiveWidget
 from utils.constants import UIConstants
 from utils.paths import get_asset_path
+from utils.sorter import TaskSorter
 from utils.strings import UIStrings
 
 logger = logging.getLogger(__name__)
@@ -69,9 +70,7 @@ class DashboardInterface(QWidget):
         self.sidebar_expanded = False
 
         # Safely calculate absolute path to the teammate's image using centralized utility
-        self.preset_image_path = get_asset_path(
-            os.path.join("..", "ref", "Efficio_UI", "images", "pastel-bg.jpg")
-        )
+        self.preset_image_path = get_asset_path(os.path.join("assets", "pastel-bg.jpg"))
 
         # Setup the Glassmorphism Background Blur
         self.bg_label = QLabel(self)
@@ -549,22 +548,8 @@ class DashboardInterface(QWidget):
         tasks = self.task_manager.get_all_tasks(db_query)
 
         # Urgency Logic
-        from PySide6.QtCore import QDate, QDateTime
-
-        def is_task_urgent(t):
-            if t.status == UIStrings.STATUS_DONE or not t.due_date:
-                return False
-            due_str = str(t.due_date).strip()
-            dt = QDateTime.fromString(due_str, Qt.DateFormat.ISODate)
-            if not dt.isValid():
-                d = QDate.fromString(due_str, Qt.DateFormat.ISODate)
-                if not d.isValid():
-                    return False
-                dt = QDateTime(d, QDateTime.currentDateTime().time())
-            return QDateTime.currentDateTime().secsTo(dt) <= (2 * 24 * 3600)
-
         if query == "is:urgent":
-            tasks = [t for t in tasks if is_task_urgent(t)]
+            tasks = [t for t in tasks if TaskSorter.is_task_urgent(t)]
 
         if hasattr(self, "current_tag_filter") and self.current_tag_filter is not None:
             tasks = [
@@ -574,7 +559,7 @@ class DashboardInterface(QWidget):
             ]
 
         # Update Banners
-        urgent_count = sum(1 for t in tasks if is_task_urgent(t))
+        urgent_count = sum(1 for t in tasks if TaskSorter.is_task_urgent(t))
         if urgent_count > 0:
             msg = (
                 f"⚠️ {urgent_count} Urgent Tasks!"

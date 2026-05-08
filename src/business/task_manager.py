@@ -11,7 +11,7 @@ import os
 import shutil
 import uuid
 from typing import List, Optional, Dict
-from data.DataBaseHandler import DataHandler
+from data.database_handler import DataHandler
 from data.models import Task, Tag, ActivityLog
 from datetime import datetime
 
@@ -90,9 +90,26 @@ class TaskManager:
         self._data_handler.close()
 
     def run_auto_cleanup(self) -> None:
-        """FT05: Runs the 3-stage lifecycle cleanup on startup."""
+        """
+        FT05: 3-Stage Lifecycle Cleanup.
+        1. Completed tasks (>3 days old) -> Archive.
+        2. Archived tasks (>14 days old) -> Trash (soft delete).
+        3. Trash tasks (>14 days old) -> Permanently deleted.
+
+        ISO 25010: Centralizing business rules (timeframes) in the business layer.
+        """
+        from datetime import datetime, timedelta
+        from data.database_handler import _serialize_for_sqlite
+
+        now = datetime.now()
         try:
-            counts = self._data_handler.run_auto_cleanup()
+            counts = self._data_handler.run_auto_cleanup(
+                archive_cutoff=_serialize_for_sqlite(now - timedelta(days=3)),
+                trash_cutoff=_serialize_for_sqlite(now - timedelta(days=14)),
+                perm_delete_cutoff=_serialize_for_sqlite(now - timedelta(days=14)),
+                log_threshold=_serialize_for_sqlite(now - timedelta(days=30)),
+                now_serialized=_serialize_for_sqlite(now),
+            )
             if any(v > 0 for v in counts.values()):
                 logger.info(
                     f"Auto-cleanup: archived={counts['archived']}, "

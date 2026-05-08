@@ -11,7 +11,7 @@ src_dir = os.path.join(current_dir, "..", "..", "src")
 sys.path.append(src_dir)
 
 from business.task_manager import TaskManager  # noqa: I001, E402
-from data.DataBaseHandler import init_db  # noqa: I001, E402
+from data.database_handler import init_db  # noqa: I001, E402
 from data.models import Task  # noqa: I001, E402
 from main import MainWindow  # noqa: I001, E402
 from utils.constants import UIConstants  # noqa: I001, E402
@@ -111,7 +111,7 @@ def test_main001_ui_constants_compliance(app_window):
     assert dashboard.sidebar.width() == UIConstants.SIDEBAR_COLLAPSED_WIDTH
 
     # Verify Kanban Lanes use the constant width
-    lane = dashboard.kanban_board_view.todo_container
+    lane = dashboard.kanban_board_view.todo_lane
     assert lane.minimumWidth() == UIConstants.KANBAN_LANE_MIN_WIDTH
 
 
@@ -157,7 +157,7 @@ def test_evid_001_source_string_compliance():
 
 def test_evid_002_source_type_safety_compliance():
     """ISO 25010 Evidence: Prove that DataHandler methods use strict type hinting."""
-    file_path = os.path.join(src_dir, "data", "DataBaseHandler.py")
+    file_path = os.path.join(src_dir, "data", "database_handler.py")
     with open(file_path, "r", encoding="utf-8") as f:
         content = f.read()
 

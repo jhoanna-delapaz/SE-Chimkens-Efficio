@@ -1,6 +1,6 @@
 from typing import Optional
 
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QDate, QDateTime, QSize, Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QFrame,
@@ -111,7 +111,9 @@ class TaskListView(QWidget):
                 font-size: 13px;
             }
             QTreeWidget::item:hover { background-color: rgba(255,255,255,0.15); }
-            QTreeWidget::item:selected { background-color: rgba(255,255,255,0.1); }
+            QTreeWidget::item:selected {
+                background-color: rgba(255,255,255,0.1);
+            }
             QTreeView::branch:has-children:!has-siblings:closed,
             QTreeView::branch:closed:has-children:has-siblings { image: none; }
         """)
@@ -200,21 +202,7 @@ class TaskListView(QWidget):
                 parent_grp = self.todo_group
 
             # --------- URGENCY LOGIC ---------
-            from PySide6.QtCore import QDate, QDateTime
-
-            def is_task_urgent(t):
-                if t.status == UIStrings.STATUS_DONE or not t.due_date:
-                    return False
-                due_str = str(t.due_date).strip()
-                dt = QDateTime.fromString(due_str, Qt.DateFormat.ISODate)
-                if not dt.isValid():
-                    d = QDate.fromString(due_str, Qt.DateFormat.ISODate)
-                    if not d.isValid():
-                        return False
-                    dt = QDateTime(d, QDateTime.currentDateTime().time())
-                return QDateTime.currentDateTime().secsTo(dt) <= (2 * 24 * 3600)
-
-            urgent = is_task_urgent(task)
+            urgent = TaskSorter.is_task_urgent(task)
 
             # Format date nicely
             display_str = "--"
@@ -255,9 +243,6 @@ class TaskListView(QWidget):
                 for col in range(4):
                     row_item.setToolTip(col, countdown)
 
-            row_item.setForeground(
-                0, QColor(0, 0, 0, 0)
-            )  # Transparent for widget overlay
             row_item.setForeground(1, QColor("#FF4D4D" if urgent else fg_hex))
             row_item.setForeground(2, QColor(0, 0, 0, 0))
             row_item.setForeground(3, QColor(0, 0, 0, 0))

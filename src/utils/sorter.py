@@ -28,6 +28,23 @@ class TaskSorter:
                 return datetime.max
 
     @classmethod
+    def is_task_urgent(cls, task: Task) -> bool:
+        """
+        Urgency Predicate: Task is urgent if not completed and due within 48 hours.
+        ISO 25010: Centralizing this logic improves Maintainability and prevents duplication.
+        """
+        if task.status == "Completed" or not task.due_date:
+            return False
+
+        due_dt = cls.get_date_key(task)
+        if due_dt == datetime.max:
+            return False
+
+        diff = (due_dt - datetime.now()).total_seconds()
+        # Urgent if due within next 48 hours (includes overdue tasks)
+        return diff <= (2 * 24 * 3600)
+
+    @classmethod
     def sort(
         cls, tasks: List[Task], criteria: str, reverse: bool = False
     ) -> List[Task]:

@@ -18,7 +18,7 @@ except ImportError:
     QWebEngineView = None
 from data.models import Task
 from utils.constants import ACTIVE_THEME_MAP
-from utils.strings import UIStrings
+from utils.sorter import TaskSorter
 
 
 class KanbanCard(QFrame):
@@ -103,19 +103,7 @@ class KanbanCard(QFrame):
 
         # --------- URGENCY BORDER OVERRIDE ---------
 
-        def is_task_urgent(t):
-            if t.status == UIStrings.STATUS_DONE or not t.due_date:
-                return False
-            due_str = str(t.due_date).strip()
-            dt = QDateTime.fromString(due_str, Qt.DateFormat.ISODate)
-            if not dt.isValid():
-                d = QDate.fromString(due_str, Qt.DateFormat.ISODate)
-                if not d.isValid():
-                    return False
-                dt = QDateTime(d, QDateTime.currentDateTime().time())
-            return QDateTime.currentDateTime().secsTo(dt) <= (2 * 24 * 3600)
-
-        urgent = is_task_urgent(task)
+        urgent = TaskSorter.is_task_urgent(task)
         border_css = (
             "border: 1px solid rgba(255,255,255,0.2); border-left: 5px solid #FF4D4D;"
             if urgent
@@ -325,8 +313,6 @@ class KanbanCard(QFrame):
             layout.addWidget(carousel_scroll)
 
         # Tooltip Countdown
-        from utils.sorter import TaskSorter
-
         countdown = TaskSorter.format_due_countdown(task.due_date, task.status)
         if countdown:
             self.setToolTip(countdown)
