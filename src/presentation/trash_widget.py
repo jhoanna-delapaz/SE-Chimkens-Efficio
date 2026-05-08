@@ -8,6 +8,7 @@ ISO 25010 Compliance:
     - Modifiability: Extracts the trash view from the Dashboard god class.
 """
 
+import qtawesome as qta
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
@@ -217,9 +218,13 @@ class TrashWidget(QWidget):
             return
 
         menu = QMenu(self)
-        restore_action = menu.addAction(f"Restore ({len(selected_items)}) Tasks")
+        restore_action = menu.addAction(
+            qta.icon("fa5s.undo", color="#A0A0A0"),
+            f"Restore ({len(selected_items)}) Tasks",
+        )
         perm_delete_action = menu.addAction(
-            f"Permanently Delete ({len(selected_items)}) Tasks"
+            qta.icon("fa5s.times-circle", color="#A0A0A0"),
+            f"Permanently Delete ({len(selected_items)}) Tasks",
         )
 
         action = menu.exec(self.task_tree.viewport().mapToGlobal(pos))

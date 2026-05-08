@@ -1,5 +1,5 @@
-from PySide6.QtCore import QDate, QDateTime, QSize, Qt, QUrl
-from PySide6.QtGui import QColor, QKeyEvent, QPixmap
+from PySide6.QtCore import QDate, QDateTime, QSize, Qt, QUrl, QMimeData
+from PySide6.QtGui import QColor, QKeyEvent, QPixmap, QDrag
 from PySide6.QtWidgets import (
     QDialog,
     QFrame,
@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QVBoxLayout,
     QWidget,
+    QApplication,
 )
 
 try:
@@ -31,7 +32,38 @@ class KanbanCard(QFrame):
         self.task = task
         self.dashboard = dashboard
         self.setObjectName("KanbanCard")
+        self.drag_start_position = None
         self.setup_ui()
+
+    def mousePressEvent(self, event):
+        """Track the start of a potential drag operation."""
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.drag_start_position = event.pos()
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        """Initiate the drag operation if moved far enough."""
+        if not (event.buttons() & Qt.MouseButton.LeftButton):
+            return
+        if not self.drag_start_position:
+            return
+        if (
+            event.pos() - self.drag_start_position
+        ).manhattanLength() < QApplication.startDragDistance():
+            return
+
+        drag = QDrag(self)
+        mime_data = QMimeData()
+        # Pass the Task ID so the drop target knows which task to move
+        mime_data.setText(str(self.task.id))
+        drag.setMimeData(mime_data)
+
+        # Visual feedback: card preview
+        pixmap = self.grab()
+        drag.setPixmap(pixmap)
+        drag.setHotSpot(event.pos())
+
+        drag.exec(Qt.DropAction.MoveAction)
 
     def setup_ui(self):
         task = self.task

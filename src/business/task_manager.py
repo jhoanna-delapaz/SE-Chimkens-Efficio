@@ -89,6 +89,47 @@ class TaskManager:
         """Close DB connection. Call on shutdown to avoid file locks."""
         self._data_handler.close()
 
+    def run_auto_cleanup(self) -> None:
+        """FT05: Runs the 3-stage lifecycle cleanup on startup."""
+        try:
+            counts = self._data_handler.run_auto_cleanup()
+            if any(v > 0 for v in counts.values()):
+                logger.info(
+                    f"Auto-cleanup: archived={counts['archived']}, "
+                    f"sent_to_trash={counts['sent_to_trash']}, "
+                    f"permanently_deleted={counts['permanently_deleted']}"
+                )
+        except Exception as e:
+            logger.error(f"Auto-cleanup failed: {e}")
+
+    def archive_task(self, task_id: int) -> None:
+        """Moves a task to the Archive."""
+        try:
+            task = self.get_task_by_id(task_id)
+            self._data_handler.archive_task(task_id)
+            if task:
+                self.log_action(task_id, task.title, "Archived")
+        except Exception as e:
+            logger.error(f"Archive Error for Task {task_id}: {e}")
+
+    def restore_from_archive(self, task_id: int) -> None:
+        """Restores a task from the Archive to the main dashboard."""
+        try:
+            self._data_handler.restore_from_archive(task_id)
+            task = self.get_task_by_id(task_id)
+            if task:
+                self.log_action(task_id, task.title, "Unarchived")
+        except Exception as e:
+            logger.error(f"Restore-from-Archive Error for Task {task_id}: {e}")
+
+    def get_archived_tasks(self, search_query: str = "") -> List[Task]:
+        """Fetches all archived tasks."""
+        try:
+            return self._data_handler.get_archived_tasks(search_query)
+        except Exception as e:
+            logger.error(f"Get Archived Tasks Error: {e}")
+            return []
+
     def get_all_tags(self) -> List[Tag]:
         """Fetches all tags securely."""
         try:
@@ -387,10 +428,10 @@ class TaskManager:
 
         return stats
 
-    def get_activity_logs(self) -> List[ActivityLog]:
+    def get_activity_logs(self, limit: int = 100) -> List[ActivityLog]:
         """Fetches the history of actions from the database."""
         try:
-            return self._data_handler.get_activity_logs()
+            return self._data_handler.get_activity_logs(limit)
         except sqlite3.Error:
             logger.error("Database Query Error on Get Activity Logs")
             return []

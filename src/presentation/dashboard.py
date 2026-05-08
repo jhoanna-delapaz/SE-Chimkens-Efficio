@@ -32,6 +32,7 @@ from presentation.task_editor_dialog import TaskEditorDialog
 from presentation.trash_widget import TrashWidget
 from presentation.tags_management_widget import TagsManagementWidget
 from presentation.activity_log_widget import ActivityLogWidget
+from presentation.archive_widget import ArchiveWidget
 from utils.constants import UIConstants
 from utils.paths import get_asset_path
 from utils.strings import UIStrings
@@ -81,6 +82,7 @@ class DashboardInterface(QWidget):
 
         self.setup_ui()
         self.update_background()
+        self.task_manager.run_auto_cleanup()  # FT05: Run 3-stage lifecycle
         self.load_tasks()
 
     def resizeEvent(self, event):
@@ -166,6 +168,7 @@ class DashboardInterface(QWidget):
             "Kanban Board": "fa5s.th-large",
             "Manage Tags": "fa5s.tags",
             "Activity Log": "fa5s.history",
+            "Archive": "fa5s.archive",
             "Trash Bin": "fa5s.trash-alt",
         }
 
@@ -174,6 +177,7 @@ class DashboardInterface(QWidget):
             "Kanban Board",
             "Manage Tags",
             "Activity Log",
+            "Archive",
             "Trash Bin",
         ]:
             btn = QPushButton("")
@@ -205,6 +209,8 @@ class DashboardInterface(QWidget):
                 btn.clicked.connect(lambda: self.set_mode("tags"))
             elif text == "Activity Log":
                 btn.clicked.connect(lambda: self.set_mode("activity"))
+            elif text == "Archive":
+                btn.clicked.connect(lambda: self.set_mode("archive"))
             elif text == "Trash Bin":
                 btn.clicked.connect(lambda: self.set_mode("trash"))
 
@@ -437,9 +443,12 @@ class DashboardInterface(QWidget):
         self.content_stack.addWidget(self.page_kanban)
         self.page_trash = TrashWidget(self)
         self.content_stack.addWidget(self.page_trash)
+        self.page_archive = ArchiveWidget(self)
+        self.content_stack.addWidget(self.page_archive)
         self.page_tags = TagsManagementWidget(self, self.task_manager)
         self.content_stack.addWidget(self.page_tags)
         self.page_activity = ActivityLogWidget(self)
+        self.page_activity.request_more.connect(lambda limit: self.set_mode("activity"))
         self.content_stack.addWidget(self.page_activity)
 
         self.main_layout.addWidget(self.sidebar)
@@ -604,12 +613,29 @@ class DashboardInterface(QWidget):
         """
         menu = QMenu(self)
         if self.current_mode in ("active", "kanban"):
-            pending_action = menu.addAction(f"Move to {UIStrings.STATUS_TODO}")
-            progress_action = menu.addAction(f"Move to {UIStrings.STATUS_IN_PROGRESS}")
-            done_action = menu.addAction(f"Move to {UIStrings.STATUS_DONE}")
+            pending_action = menu.addAction(
+                qta.icon("fa5s.clock", color="#A0A0A0"),
+                f"Move to {UIStrings.STATUS_TODO}",
+            )
+            progress_action = menu.addAction(
+                qta.icon("fa5s.spinner", color="#A0A0A0"),
+                f"Move to {UIStrings.STATUS_IN_PROGRESS}",
+            )
+            done_action = menu.addAction(
+                qta.icon("fa5s.check-circle", color="#A0A0A0"),
+                f"Move to {UIStrings.STATUS_DONE}",
+            )
             menu.addSeparator()
-            edit_action = menu.addAction(UIStrings.ACTION_EDIT_TASK)
-            delete_action = menu.addAction(UIStrings.ACTION_DELETE_TASK)
+            edit_action = menu.addAction(
+                qta.icon("fa5s.edit", color="#A0A0A0"), UIStrings.ACTION_EDIT_TASK
+            )
+            archive_action = menu.addAction(
+                qta.icon("fa5s.archive", color="#A0A0A0"), "Archive Task"
+            )
+            delete_action = menu.addAction(
+                qta.icon("fa5s.trash-alt", color="#A0A0A0"),
+                UIStrings.ACTION_DELETE_TASK,
+            )
 
             action = menu.exec(global_pos)
             if action == pending_action:
@@ -622,6 +648,8 @@ class DashboardInterface(QWidget):
                 self.task_manager.update_task_status(task.id, UIStrings.STATUS_DONE)
             elif action == edit_action:
                 self.edit_specific_task(task.id)
+            elif action == archive_action:
+                self.task_manager.archive_task(task.id)
             elif action == delete_action:
                 self.delete_specific_task(task.id)
 
@@ -756,8 +784,12 @@ class DashboardInterface(QWidget):
             menu = QMenu(self)
 
             if self.current_mode == "active":
-                edit_action = menu.addAction("Edit Task")
-                delete_action = menu.addAction("Move to Trash")
+                edit_action = menu.addAction(
+                    qta.icon("fa5s.edit", color="#A0A0A0"), "Edit Task"
+                )
+                delete_action = menu.addAction(
+                    qta.icon("fa5s.trash-alt", color="#A0A0A0"), "Move to Trash"
+                )
                 action = menu.exec(self.task_list.mapToGlobal(pos))
 
                 if action == delete_action:
@@ -766,8 +798,12 @@ class DashboardInterface(QWidget):
                     self.edit_current_task(item)
 
             elif self.current_mode == "trash":
-                restore_action = menu.addAction("Restore Task")
-                perm_delete_action = menu.addAction("Permanently Delete")
+                restore_action = menu.addAction(
+                    qta.icon("fa5s.undo", color="#A0A0A0"), "Restore Task"
+                )
+                perm_delete_action = menu.addAction(
+                    qta.icon("fa5s.times-circle", color="#A0A0A0"), "Permanently Delete"
+                )
                 action = menu.exec(self.task_list.mapToGlobal(pos))
 
                 if action == restore_action:
@@ -820,34 +856,39 @@ class DashboardInterface(QWidget):
         if mode == "trash":
             self.title_label.setText("Trash Bin")
             self.add_btn.hide()
-            self.content_stack.setCurrentIndex(2)  # TrashWidget
+            self.content_stack.setCurrentWidget(self.page_trash)
             self.page_trash.refresh()
         elif mode == "tags":
             self.title_label.setText("Manage Tags")
             self.add_btn.hide()
-            self.content_stack.setCurrentIndex(3)  # TagsWidget
+            self.content_stack.setCurrentWidget(self.page_tags)
             self.page_tags.refresh()
         elif mode == "active":
             self.title_label.setText(UIStrings.NAV_TASKS)
             self.add_btn.show()
-            self.content_stack.setCurrentIndex(0)
+            self.content_stack.setCurrentWidget(self.page_dashboard)
             self.populate_tag_filters()
             self.load_tasks()
         elif mode == "kanban":
             self.title_label.setText("Kanban Board")
             self.add_btn.show()
-            self.content_stack.setCurrentIndex(1)
+            self.content_stack.setCurrentWidget(self.page_kanban)
             self.populate_tag_filters()
             self.load_tasks()
         elif mode == "activity":
             self.title_label.setText("Activity Log")
             self.add_btn.hide()
-            self.content_stack.setCurrentIndex(4)
+            self.content_stack.setCurrentWidget(self.page_activity)
             self.page_activity.set_revert_callback(self._do_revert)
             self.page_activity.refresh(
-                self.task_manager.get_activity_logs(),
+                self.task_manager.get_activity_logs(self.page_activity._current_limit),
                 self.task_manager.get_activity_counts(),
             )
+        elif mode == "archive":
+            self.title_label.setText("Archive")
+            self.add_btn.hide()
+            self.content_stack.setCurrentWidget(self.page_archive)
+            self.page_archive.refresh()
 
     def _do_revert(self, log) -> bool:
         """Phase 3: Executes a revert action and refreshes all views."""
@@ -855,7 +896,7 @@ class DashboardInterface(QWidget):
         if success:
             self.load_tasks()
             self.page_activity.refresh(
-                self.task_manager.get_activity_logs(),
+                self.task_manager.get_activity_logs(self.page_activity._current_limit),
                 self.task_manager.get_activity_counts(),
             )
         return success

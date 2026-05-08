@@ -31,7 +31,10 @@ class Task:
     is_deleted: int = 0
     color: str = "#FFFFFF"  # Default white HEX
     tags: List[Tag] = None  # List of associated tags
-    attachments: List[TaskAttachment] = None  # NEW: List of file attachments
+    attachments: List[TaskAttachment] = None  # List of file attachments
+    is_archived: int = 0  # FT05: 0=active, 1=archived
+    archived_at: Optional[str] = None  # FT05: ISO timestamp when archived
+    deleted_at: Optional[str] = None  # FT05: ISO timestamp when soft-deleted to trash
 
     def __post_init__(self):
         if self.tags is None:

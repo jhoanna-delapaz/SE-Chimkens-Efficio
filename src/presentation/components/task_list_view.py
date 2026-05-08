@@ -20,6 +20,58 @@ from utils.sorter import TaskSorter
 from utils.strings import UIStrings
 
 
+class DraggableTaskTree(QTreeWidget):
+    """
+    Subclass of QTreeWidget that handles drag-and-drop for status changes.
+    """
+
+    def __init__(self, parent=None, dashboard=None):
+        super().__init__(parent)
+        self.dashboard = dashboard
+        self.setDragEnabled(True)
+        self.setAcceptDrops(True)
+        self.setDragDropMode(QTreeWidget.DragDropMode.DragDrop)
+
+    def dropEvent(self, event):
+        # Identify the item being dropped
+        item = self.currentItem()
+        if not item:
+            return
+
+        # Identify the drop target (the group)
+        target_item = self.itemAt(event.pos())
+        if not target_item:
+            return
+
+        # Find the parent group if we dropped on a task instead of the header
+        group_item = target_item
+        while group_item and group_item.parent() is not None:
+            group_item = group_item.parent()
+
+        if not group_item:
+            return
+
+        # Determine target status based on group header text
+        group_text = group_item.text(0)
+        target_status = None
+        if UIStrings.LABEL_TODO in group_text:
+            target_status = UIStrings.STATUS_TODO
+        elif UIStrings.LABEL_IN_PROGRESS in group_text:
+            target_status = UIStrings.STATUS_IN_PROGRESS
+        elif UIStrings.LABEL_DONE in group_text:
+            target_status = UIStrings.STATUS_DONE
+
+        task_id = item.data(0, Qt.ItemDataRole.UserRole)
+
+        if task_id and target_status and self.dashboard:
+            self.dashboard.task_manager.update_task_status(task_id, target_status)
+            self.dashboard.load_tasks()
+            event.setDropAction(Qt.DropAction.MoveAction)
+            event.accept()
+        else:
+            event.ignore()
+
+
 class TaskListView(QWidget):
     """
     Modular Task List View using QTreeWidget with Status Grouping.
@@ -37,10 +89,16 @@ class TaskListView(QWidget):
         self.main_layout = QVBoxLayout(self)
         self.main_layout.setContentsMargins(0, 0, 0, 0)
 
-        self.task_tree = QTreeWidget()
+        self.task_tree = DraggableTaskTree(dashboard=self.dashboard)
         self.task_tree.setColumnCount(4)
         self.task_tree.setHeaderHidden(True)
-        self.task_tree.setSelectionMode(QTreeWidget.SelectionMode.NoSelection)
+        # Revert to SelectRows so you don't click individual cells
+        from PySide6.QtWidgets import QAbstractItemView
+
+        self.task_tree.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows
+        )
+        self.task_tree.setSelectionMode(QTreeWidget.SelectionMode.SingleSelection)
         self.task_tree.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.task_tree.setIndentation(0)
 
@@ -173,7 +231,7 @@ class TaskListView(QWidget):
                         else due_str
                     )
 
-            row_item = QTreeWidgetItem([task.title, display_str, "", task.priority])
+            row_item = QTreeWidgetItem(["", display_str, "", ""])
             row_item.setSizeHint(0, QSize(0, 32))
             row_item.setData(0, Qt.ItemDataRole.UserRole, task.id)
 

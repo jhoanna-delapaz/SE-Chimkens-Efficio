@@ -1401,8 +1401,7 @@ def test_tc040_heatmap_data_retrieval(app_window):
 def test_tc041_sidebar_icons_present(app_window):
     """[FT08] TC-041: Verify each sidebar button has a valid icon."""
     dash = app_window.dashboard
-    # 5 buttons in setup_ui loop
-    assert len(dash.sidebar_options) == 5
+    assert len(dash.sidebar_options) == 6  # Updated for FT05 (Archive added)
 
     for btn, text in dash.sidebar_options:
         icon = btn.icon()
@@ -1439,3 +1438,111 @@ def test_tc043_sidebar_icon_persistence(app_window):
         dash.toggle_sidebar()
         for btn, text in dash.sidebar_options:
             assert not btn.icon().isNull()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FT05: Task Archive & Auto-Cleanup Lifecycle
+# TC-044 → TC-049
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_tc044_manual_archive(app_window):
+    """[FT05] TC-044: Manual archiving hides task from main list."""
+    tm = app_window.dashboard.task_manager
+    tid = tm.add_task(
+        Task(None, "Archive Me", "", "Pending", datetime.now(), None, "Low")
+    )
+
+    tm.archive_task(tid)
+    tasks = tm.get_all_tasks()
+    assert not any(t.id == tid for t in tasks)
+
+
+def test_tc045_archive_retrieval(app_window):
+    """[FT05] TC-045: Archived tasks appear in get_archived_tasks()."""
+    tm = app_window.dashboard.task_manager
+    tid = tm.add_task(
+        Task(None, "In Archive", "", "Pending", datetime.now(), None, "Low")
+    )
+    tm.archive_task(tid)
+
+    archived = tm.get_archived_tasks()
+    assert any(t.id == tid for t in archived)
+
+
+def test_tc046_restore_from_archive(app_window):
+    """[FT05] TC-046: Restoring from archive brings task back to active list."""
+    tm = app_window.dashboard.task_manager
+    tid = tm.add_task(
+        Task(None, "Restore Me", "", "Pending", datetime.now(), None, "Low")
+    )
+    tm.archive_task(tid)
+    tm.restore_from_archive(tid)
+
+    tasks = tm.get_all_tasks()
+    assert any(t.id == tid for t in tasks)
+    archived = tm.get_archived_tasks()
+    assert not any(t.id == tid for t in archived)
+
+
+def test_tc047_auto_archive_completed_tasks(app_window):
+    """[FT05] TC-047: Completed tasks > 3 days old are auto-archived."""
+    from datetime import timedelta
+
+    tm = app_window.dashboard.task_manager
+    old_date = datetime.now() - timedelta(days=4)
+
+    # Manually insert via handler to force old creation date
+    cur = tm._data_handler._conn.cursor()
+    cur.execute(
+        "INSERT INTO tasks (title, status, created_at) VALUES ('Old Done', 'Completed', ?)",
+        (old_date.isoformat(),),
+    )
+    tm._data_handler._conn.commit()
+    tid = cur.lastrowid
+
+    tm.run_auto_cleanup()
+    archived = tm.get_archived_tasks()
+    assert any(t.id == tid for t in archived)
+
+
+def test_tc048_auto_trash_archived_tasks(app_window):
+    """[FT05] TC-048: Archived tasks > 14 days old are auto-trashed (soft delete)."""
+    from datetime import timedelta
+
+    tm = app_window.dashboard.task_manager
+    old_date = datetime.now() - timedelta(days=15)
+
+    cur = tm._data_handler._conn.cursor()
+    cur.execute(
+        "INSERT INTO tasks (title, status, created_at, is_archived, archived_at) VALUES ('Old Archive', 'Pending', ?, 1, ?)",
+        (old_date.isoformat(), old_date.isoformat()),
+    )
+    tm._data_handler._conn.commit()
+    tid = cur.lastrowid
+
+    tm.run_auto_cleanup()
+    trashed = tm._data_handler.get_deleted_tasks()
+    assert any(t.id == tid for t in trashed)
+    archived = tm.get_archived_tasks()
+    assert not any(t.id == tid for t in archived)
+
+
+def test_tc049_auto_delete_trash_tasks(app_window):
+    """[FT05] TC-049: Trash tasks > 14 days old are permanently deleted."""
+    from datetime import timedelta
+
+    tm = app_window.dashboard.task_manager
+    old_date = datetime.now() - timedelta(days=15)
+
+    cur = tm._data_handler._conn.cursor()
+    cur.execute(
+        "INSERT INTO tasks (title, status, created_at, is_deleted, deleted_at) VALUES ('Old Trash', 'Pending', ?, 1, ?)",
+        (old_date.isoformat(), old_date.isoformat()),
+    )
+    tm._data_handler._conn.commit()
+    tid = cur.lastrowid
+
+    tm.run_auto_cleanup()
+    trashed = tm._data_handler.get_deleted_tasks()
+    assert not any(t.id == tid for t in trashed)
