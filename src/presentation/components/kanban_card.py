@@ -122,6 +122,11 @@ class KanbanCard(QFrame):
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(8)
 
+        # Lock card height so popup close doesn't cause re-expansion
+        from PySide6.QtWidgets import QSizePolicy
+
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
         header_layout = QHBoxLayout()
         title_lbl = QLabel(shatter_gibberish(task.title))
         title_lbl.setStyleSheet("font-weight: bold; font-size: 16px;")
@@ -218,7 +223,6 @@ class KanbanCard(QFrame):
                 tags_layout.addWidget(more_lbl)
 
             tags_layout.addStretch()
-            tags_layout.addStretch()
             layout.addLayout(tags_layout)
 
         # --------- ATTACHMENTS CAROUSEL ---------
@@ -230,6 +234,9 @@ class KanbanCard(QFrame):
                 "background-color: transparent; border: none;"
             )
             carousel_scroll.setFixedHeight(60)
+            from PySide6.QtWidgets import QSizePolicy as SP
+
+            carousel_scroll.setSizePolicy(SP.Policy.Expanding, SP.Policy.Fixed)
             carousel_scroll.setHorizontalScrollBarPolicy(
                 Qt.ScrollBarPolicy.ScrollBarAlwaysOff
             )
