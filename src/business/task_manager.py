@@ -60,6 +60,31 @@ class TaskManager:
 
         return True
 
+    def _validate_task(self, task: Task) -> bool:
+        """Validates task integrity to prevent malicious or malformed injections."""
+        if not task.title or not task.title.strip():
+            logger.warning(
+                "Security/Validation Alert: Blocked attempt to save task with empty title."
+            )
+            return False
+        if len(task.title) > 255:
+            logger.warning(
+                "Security/Validation Alert: Task title exceeds maximum allowed length."
+            )
+            return False
+
+        # Basic anti-XSS heuristic
+        malicious_patterns = ["<script>", "javascript:", "onload="]
+        title_lower = task.title.lower()
+        desc_lower = (task.description or "").lower()
+        if any(p in title_lower or p in desc_lower for p in malicious_patterns):
+            logger.warning(
+                "Security/Validation Alert: Blocked potential script injection attempt."
+            )
+            return False
+
+        return True
+
     def close(self) -> None:
         """Close DB connection. Call on shutdown to avoid file locks."""
         self._data_handler.close()
