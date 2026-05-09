@@ -10,7 +10,7 @@ This document serves as the formal record of technical compliance for the Effici
 | Standard | Implementation | Location | Evidence / Example |
 | :--- | :--- | :--- | :--- |
 | **Input Sanitization** | Heuristic blocking of `<script>`, `javascript:`, and `onload` patterns in `TaskManager`. | `src/business/task_manager.py` | **Line 44**: `malicious_patterns = ["<script>", "javascript:", "onload="]` |
-| **SQLi Protection** | Use of parameter binding (tuples) for all SQLite queries to prevent injection. | `src/data/DataBaseHandler.py` | **Line 161**: `cur.execute(query, (f"%{search_query}%",))` |
+| **SQLi Protection** | Use of parameter binding (tuples) for all SQLite queries to prevent injection. | `src/data/database_handler.py` | **Line 161**: `cur.execute(query, (f"%{search_query}%",))` |
 | **Exception Masking** | Centralized logging handles errors; internal schema details are masked from end-users. | `src/business/task_manager.py` | **Line 66**: `logger.error("Database Integrity Error (details masked)")` |
 
 ---
@@ -20,7 +20,7 @@ This document serves as the formal record of technical compliance for the Effici
 
 | Standard | Implementation | Location | Evidence / Example |
 | :--- | :--- | :--- | :--- |
-| **Strict Type Safety** | 100% Type Hint coverage for Data and Business layer methods and UI constructors. | `src/data/DataBaseHandler.py` | **Line 156**: `def get_all_tasks(...) -> List[Task]:` |
+| **Strict Type Safety** | 100% Type Hint coverage for Data and Business layer methods and UI constructors. | `src/data/database_handler.py` | **Line 156**: `def get_all_tasks(...) -> List[Task]:` |
 | **Modular UI Pattern** | Extraction of Dashboard into atomic widgets: `TaskListView`, `KanbanBoardView`, `TrashWidget`. | `src/presentation/components/` | **Structure**: Isolated classes for each visual entity. |
 | **Magic Number Removal** | Centralized UI measurements (pixel values) in `UIConstants`. | `src/utils/constants.py` | **Line 24**: `SIDEBAR_COLLAPSED_WIDTH = 60` |
 | **Centralized Strings** | UI labels and status text consolidated in `UIStrings` for easy auditing. | `src/utils/strings.py` | **Line 10**: `LABEL_TODO = "To-Do"` |
@@ -43,7 +43,7 @@ This document serves as the formal record of technical compliance for the Effici
 
 | Standard | Implementation | Location | Evidence / Example |
 | :--- | :--- | :--- | :--- |
-| **Schema Migrations** | Robust logic to upgrade database schemas without data loss (e.g., adding `is_deleted` column). | `src/data/DataBaseHandler.py` | **Line 41**: `ALTER TABLE tasks ADD COLUMN is_deleted` |
+| **Schema Migrations** | Robust logic to upgrade database schemas without data loss (e.g., adding `is_deleted` column). | `src/data/database_handler.py` | **Line 41**: `ALTER TABLE tasks ADD COLUMN is_deleted` |
 | **Resource Cleanup** | Safe closure of database connections on application shutdown to prevent file locks. | `src/main.py` | **Line 144**: `self.dashboard.task_manager.close()` |
 
 ---

@@ -1,5 +1,5 @@
-from PySide6.QtCore import QDate, QDateTime, QSize, Qt, QUrl
-from PySide6.QtGui import QColor, QKeyEvent, QPixmap
+from PySide6.QtCore import QDate, QDateTime, QSize, Qt, QUrl, QMimeData
+from PySide6.QtGui import QColor, QKeyEvent, QPixmap, QDrag
 from PySide6.QtWidgets import (
     QDialog,
     QFrame,
@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QVBoxLayout,
     QWidget,
+    QApplication,
 )
 
 try:
@@ -17,7 +18,7 @@ except ImportError:
     QWebEngineView = None
 from data.models import Task
 from utils.constants import ACTIVE_THEME_MAP
-from utils.strings import UIStrings
+from utils.sorter import TaskSorter
 
 
 class KanbanCard(QFrame):
@@ -31,7 +32,38 @@ class KanbanCard(QFrame):
         self.task = task
         self.dashboard = dashboard
         self.setObjectName("KanbanCard")
+        self.drag_start_position = None
         self.setup_ui()
+
+    def mousePressEvent(self, event):
+        """Track the start of a potential drag operation."""
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.drag_start_position = event.pos()
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        """Initiate the drag operation if moved far enough."""
+        if not (event.buttons() & Qt.MouseButton.LeftButton):
+            return
+        if not self.drag_start_position:
+            return
+        if (
+            event.pos() - self.drag_start_position
+        ).manhattanLength() < QApplication.startDragDistance():
+            return
+
+        drag = QDrag(self)
+        mime_data = QMimeData()
+        # Pass the Task ID so the drop target knows which task to move
+        mime_data.setText(str(self.task.id))
+        drag.setMimeData(mime_data)
+
+        # Visual feedback: card preview
+        pixmap = self.grab()
+        drag.setPixmap(pixmap)
+        drag.setHotSpot(event.pos())
+
+        drag.exec(Qt.DropAction.MoveAction)
 
     def setup_ui(self):
         task = self.task
@@ -71,19 +103,7 @@ class KanbanCard(QFrame):
 
         # --------- URGENCY BORDER OVERRIDE ---------
 
-        def is_task_urgent(t):
-            if t.status == UIStrings.STATUS_DONE or not t.due_date:
-                return False
-            due_str = str(t.due_date).strip()
-            dt = QDateTime.fromString(due_str, Qt.DateFormat.ISODate)
-            if not dt.isValid():
-                d = QDate.fromString(due_str, Qt.DateFormat.ISODate)
-                if not d.isValid():
-                    return False
-                dt = QDateTime(d, QDateTime.currentDateTime().time())
-            return QDateTime.currentDateTime().secsTo(dt) <= (2 * 24 * 3600)
-
-        urgent = is_task_urgent(task)
+        urgent = TaskSorter.is_task_urgent(task)
         border_css = (
             "border: 1px solid rgba(255,255,255,0.2); border-left: 5px solid #FF4D4D;"
             if urgent
@@ -293,8 +313,6 @@ class KanbanCard(QFrame):
             layout.addWidget(carousel_scroll)
 
         # Tooltip Countdown
-        from utils.sorter import TaskSorter
-
         countdown = TaskSorter.format_due_countdown(task.due_date, task.status)
         if countdown:
             self.setToolTip(countdown)

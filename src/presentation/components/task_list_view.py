@@ -1,6 +1,6 @@
 from typing import Optional
 
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QDate, QDateTime, QSize, Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QFrame,
@@ -20,6 +20,58 @@ from utils.sorter import TaskSorter
 from utils.strings import UIStrings
 
 
+class DraggableTaskTree(QTreeWidget):
+    """
+    Subclass of QTreeWidget that handles drag-and-drop for status changes.
+    """
+
+    def __init__(self, parent=None, dashboard=None):
+        super().__init__(parent)
+        self.dashboard = dashboard
+        self.setDragEnabled(True)
+        self.setAcceptDrops(True)
+        self.setDragDropMode(QTreeWidget.DragDropMode.DragDrop)
+
+    def dropEvent(self, event):
+        # Identify the item being dropped
+        item = self.currentItem()
+        if not item:
+            return
+
+        # Identify the drop target (the group)
+        target_item = self.itemAt(event.pos())
+        if not target_item:
+            return
+
+        # Find the parent group if we dropped on a task instead of the header
+        group_item = target_item
+        while group_item and group_item.parent() is not None:
+            group_item = group_item.parent()
+
+        if not group_item:
+            return
+
+        # Determine target status based on group header text
+        group_text = group_item.text(0)
+        target_status = None
+        if UIStrings.LABEL_TODO in group_text:
+            target_status = UIStrings.STATUS_TODO
+        elif UIStrings.LABEL_IN_PROGRESS in group_text:
+            target_status = UIStrings.STATUS_IN_PROGRESS
+        elif UIStrings.LABEL_DONE in group_text:
+            target_status = UIStrings.STATUS_DONE
+
+        task_id = item.data(0, Qt.ItemDataRole.UserRole)
+
+        if task_id and target_status and self.dashboard:
+            self.dashboard.task_manager.update_task_status(task_id, target_status)
+            self.dashboard.load_tasks()
+            event.setDropAction(Qt.DropAction.MoveAction)
+            event.accept()
+        else:
+            event.ignore()
+
+
 class TaskListView(QWidget):
     """
     Modular Task List View using QTreeWidget with Status Grouping.
@@ -37,10 +89,16 @@ class TaskListView(QWidget):
         self.main_layout = QVBoxLayout(self)
         self.main_layout.setContentsMargins(0, 0, 0, 0)
 
-        self.task_tree = QTreeWidget()
+        self.task_tree = DraggableTaskTree(dashboard=self.dashboard)
         self.task_tree.setColumnCount(4)
         self.task_tree.setHeaderHidden(True)
-        self.task_tree.setSelectionMode(QTreeWidget.SelectionMode.NoSelection)
+        # Revert to SelectRows so you don't click individual cells
+        from PySide6.QtWidgets import QAbstractItemView
+
+        self.task_tree.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows
+        )
+        self.task_tree.setSelectionMode(QTreeWidget.SelectionMode.SingleSelection)
         self.task_tree.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.task_tree.setIndentation(0)
 
@@ -53,7 +111,9 @@ class TaskListView(QWidget):
                 font-size: 13px;
             }
             QTreeWidget::item:hover { background-color: rgba(255,255,255,0.15); }
-            QTreeWidget::item:selected { background-color: rgba(255,255,255,0.1); }
+            QTreeWidget::item:selected {
+                background-color: rgba(255,255,255,0.1);
+            }
             QTreeView::branch:has-children:!has-siblings:closed,
             QTreeView::branch:closed:has-children:has-siblings { image: none; }
         """)
@@ -142,21 +202,7 @@ class TaskListView(QWidget):
                 parent_grp = self.todo_group
 
             # --------- URGENCY LOGIC ---------
-            from PySide6.QtCore import QDate, QDateTime
-
-            def is_task_urgent(t):
-                if t.status == UIStrings.STATUS_DONE or not t.due_date:
-                    return False
-                due_str = str(t.due_date).strip()
-                dt = QDateTime.fromString(due_str, Qt.DateFormat.ISODate)
-                if not dt.isValid():
-                    d = QDate.fromString(due_str, Qt.DateFormat.ISODate)
-                    if not d.isValid():
-                        return False
-                    dt = QDateTime(d, QDateTime.currentDateTime().time())
-                return QDateTime.currentDateTime().secsTo(dt) <= (2 * 24 * 3600)
-
-            urgent = is_task_urgent(task)
+            urgent = TaskSorter.is_task_urgent(task)
 
             # Format date nicely
             display_str = "--"
@@ -173,7 +219,7 @@ class TaskListView(QWidget):
                         else due_str
                     )
 
-            row_item = QTreeWidgetItem([task.title, display_str, "", task.priority])
+            row_item = QTreeWidgetItem(["", display_str, "", ""])
             row_item.setSizeHint(0, QSize(0, 32))
             row_item.setData(0, Qt.ItemDataRole.UserRole, task.id)
 
@@ -197,9 +243,6 @@ class TaskListView(QWidget):
                 for col in range(4):
                     row_item.setToolTip(col, countdown)
 
-            row_item.setForeground(
-                0, QColor(0, 0, 0, 0)
-            )  # Transparent for widget overlay
             row_item.setForeground(1, QColor("#FF4D4D" if urgent else fg_hex))
             row_item.setForeground(2, QColor(0, 0, 0, 0))
             row_item.setForeground(3, QColor(0, 0, 0, 0))

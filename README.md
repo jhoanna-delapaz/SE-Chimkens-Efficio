@@ -23,7 +23,7 @@ graph TD
 
     subgraph "Application Architecture"
         direction TB
-        
+
         subgraph Presentation ["Presentation Layer (GUI)"]
             UI["MainWindow"]:::component
             Dash["Dashboard View"]:::component
@@ -42,13 +42,13 @@ graph TD
 
     %% Key Interactions
     User -->|Interacts| UI
-    
+
     UI <-->|Commands & Updates| TM
     Dash <-->|Requests Reports| Analytics
-    
+
     TM <-->|Read/Write Tasks| Repo
     Analytics <-->|Read Statistics| Repo
-    
+
     Repo <-->|SQL Queries| DB
 
     class Presentation,Logic,Data layer;
@@ -62,7 +62,10 @@ graph TD
     The application is divided into distinct layers. The **UI** only handles user interaction and display. The **Business Logic (TaskManager)** handles rules and validation. The **Data Layer** handles storage. This makes the code easier to maintain and test.
 
 *   **Single Responsibility Principle (SRP):**
-    Each class has a focused purpose. For example, the `Analytics` class is solely responsible for calculating statistics and does not manage task creation or database connections.
+    Each class has a focused purpose. For example, the `Analytics Engine` is solely responsible for calculating statistics and does not manage task creation or database connections.
+
+*   **3-Stage Lifecycle Management:**
+    Automated data retention and cleanup. Tasks transition from **Active** -> **Archive** (3 days) -> **Trash** (14 days) -> **Permanently Deleted** (14 days), ensuring a clean and performant workspace.
 
 ## System Design (UML)
 
@@ -73,7 +76,7 @@ graph TD
 <br>
 
 ### 2. Class Diagram
-**Tech Stack:** Python (Backend) + PyQt (Frontend).
+**Tech Stack:** Python (Backend) + PySide6 (Frontend).
 <br>
 <img src="docs/uml/UML-%20Class%20Diagram%20(CHIMKENS)%20-%20EFFICIO.jpeg" width="600" alt="Class Diagram">
 <br>

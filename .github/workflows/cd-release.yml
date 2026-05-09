@@ -29,8 +29,7 @@ jobs:
 
     - name: Build Standalone Executable
       run: |
-        pyinstaller --noconfirm --onedir --windowed --name "Efficio" "src/main.py"
-        # Optional: Zip the output directory for easy attachment
+        pyinstaller --noconfirm Efficio.spec
         Compress-Archive -Path dist\Efficio\* -DestinationPath Efficio-Windows.zip
 
     - name: Release to GitHub

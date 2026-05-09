@@ -40,7 +40,10 @@ def _row_to_task(row: tuple) -> Task:
         due_date=row[5] or "",
         priority=row[6],
         is_deleted=row[7] if len(row) > 7 else 0,
-        color=row[8] if len(row) > 8 else "#333333",  # Parse color or fallback
+        color=row[8] if len(row) > 8 else "#333333",
+        is_archived=row[9] if len(row) > 9 else 0,
+        archived_at=row[10] if len(row) > 10 else None,
+        deleted_at=row[11] if len(row) > 11 else None,
     )
 
 
@@ -144,6 +147,19 @@ def init_db(db_file: str) -> None:
                 print("Database successfully migrated to Color SCHEMA.")
             except Exception:
                 pass
+
+            # FT05: Safely migrate Archive columns
+            for col, defn in [
+                ("is_archived", "integer DEFAULT 0"),
+                ("archived_at", "text DEFAULT NULL"),
+                ("deleted_at", "text DEFAULT NULL"),
+            ]:
+                try:
+                    conn.execute(f"ALTER TABLE tasks ADD COLUMN {col} {defn}")
+                    conn.commit()
+                    print(f"Database migrated: added column '{col}'.")
+                except Exception:
+                    pass
 
         finally:
             conn.close()
@@ -298,19 +314,21 @@ class DataHandler:
         cur = self._conn.cursor()
 
         if search_query:
-            # Add wildcards to match the string anywhere inside the field
             query = f"%{search_query}%"
             cur.execute(
                 """
                 SELECT * FROM tasks
                 WHERE (is_deleted = 0 OR is_deleted IS NULL)
+                AND (is_archived = 0 OR is_archived IS NULL)
                 AND (title LIKE ? OR description LIKE ?)
             """,
                 (query, query),
             )
         else:
             cur.execute(
-                "SELECT * FROM tasks WHERE is_deleted = 0 OR is_deleted IS NULL"
+                """SELECT * FROM tasks
+                   WHERE (is_deleted = 0 OR is_deleted IS NULL)
+                   AND (is_archived = 0 OR is_archived IS NULL)"""
             )
 
         rows = cur.fetchall()
@@ -351,10 +369,122 @@ class DataHandler:
         return self._attach_attachments_to_tasks([task])[0]
 
     def delete_task(self, task_id: int) -> None:
-        """Soft-deletes a task by moving it to the Trash."""
+        """Soft-deletes a task by moving it to the Trash, recording deleted_at timestamp."""
+        from datetime import datetime
+
         cur = self._conn.cursor()
-        cur.execute("UPDATE tasks SET is_deleted = 1 WHERE id=?", (task_id,))
+        cur.execute(
+            "UPDATE tasks SET is_deleted = 1, deleted_at = ? WHERE id=?",
+            (_serialize_for_sqlite(datetime.now()), task_id),
+        )
         self._conn.commit()
+
+    def archive_task(self, task_id: int) -> None:
+        """Moves a task to the Archive, recording archived_at timestamp."""
+        from datetime import datetime
+
+        cur = self._conn.cursor()
+        cur.execute(
+            "UPDATE tasks SET is_archived = 1, archived_at = ? WHERE id=?",
+            (_serialize_for_sqlite(datetime.now()), task_id),
+        )
+        self._conn.commit()
+
+    def get_archived_tasks(self, search_query: str = "") -> List[Task]:
+        """Fetches ARCHIVED (non-deleted) tasks, optionally filtered by keyword."""
+        cur = self._conn.cursor()
+        if search_query:
+            query = f"%{search_query}%"
+            cur.execute(
+                """
+                SELECT * FROM tasks
+                WHERE is_archived = 1 AND (is_deleted = 0 OR is_deleted IS NULL)
+                AND (title LIKE ? OR description LIKE ?)
+                """,
+                (query, query),
+            )
+        else:
+            cur.execute(
+                "SELECT * FROM tasks WHERE is_archived = 1 AND (is_deleted = 0 OR is_deleted IS NULL)"
+            )
+        rows = cur.fetchall()
+        tasks = [_row_to_task(r) for r in rows]
+        tasks = self._attach_tags_to_tasks(tasks)
+        return self._attach_attachments_to_tasks(tasks)
+
+    def restore_from_archive(self, task_id: int) -> None:
+        """Moves a task out of the Archive back to the main dashboard."""
+        cur = self._conn.cursor()
+        cur.execute(
+            "UPDATE tasks SET is_archived = 0, archived_at = NULL WHERE id=?",
+            (task_id,),
+        )
+        self._conn.commit()
+
+    def run_auto_cleanup(
+        self,
+        archive_cutoff: str,
+        trash_cutoff: str,
+        perm_delete_cutoff: str,
+        log_threshold: str,
+        now_serialized: str,
+    ) -> dict:
+        """
+        FT05: 3-Stage Lifecycle Cleanup.
+        Executes cleanup based on provided cutoff dates.
+        ISO 25010: Improves Maintainability by separating business rules (timeframes) from execution.
+        """
+        counts = {"archived": 0, "sent_to_trash": 0, "permanently_deleted": 0}
+        cur = self._conn.cursor()
+
+        # Stage 1: Archive old Completed tasks
+        cur.execute(
+            """
+            UPDATE tasks SET is_archived = 1, archived_at = ?
+            WHERE status = 'Completed'
+            AND (is_archived = 0 OR is_archived IS NULL)
+            AND (is_deleted = 0 OR is_deleted IS NULL)
+            AND created_at <= ?
+            """,
+            (now_serialized, archive_cutoff),
+        )
+        counts["archived"] = cur.rowcount
+
+        # Stage 2: Send old Archived tasks to Trash (soft delete)
+        cur.execute(
+            """
+            UPDATE tasks SET is_deleted = 1, deleted_at = ?, is_archived = 0
+            WHERE is_archived = 1
+            AND archived_at IS NOT NULL AND archived_at <= ?
+            """,
+            (now_serialized, trash_cutoff),
+        )
+        counts["sent_to_trash"] = cur.rowcount
+
+        # Stage 3: Permanently delete old Trash tasks
+        cur.execute(
+            """
+            SELECT id FROM tasks
+            WHERE is_deleted = 1
+            AND deleted_at IS NOT NULL AND deleted_at <= ?
+            """,
+            (perm_delete_cutoff,),
+        )
+        ids_to_delete = [row[0] for row in cur.fetchall()]
+        for task_id in ids_to_delete:
+            cur.execute("DELETE FROM task_attachments WHERE task_id=?", (task_id,))
+            cur.execute("DELETE FROM task_tags WHERE task_id=?", (task_id,))
+            cur.execute("DELETE FROM tasks WHERE id=?", (task_id,))
+        counts["permanently_deleted"] = len(ids_to_delete)
+
+        # Stage 4: Cleanup Activity Logs
+        cur.execute(
+            "DELETE FROM activity_logs WHERE timestamp < ?",
+            (log_threshold,),
+        )
+
+        self._conn.commit()
+        return counts
 
     def update_task_status(self, task_id: int, status: str) -> None:
         cur = self._conn.cursor()
@@ -428,9 +558,11 @@ class DataHandler:
         self._conn.commit()
         return cur.lastrowid
 
-    def get_activity_logs(self) -> List[ActivityLog]:
+    def get_activity_logs(self, limit: int = 100) -> List[ActivityLog]:
         cur = self._conn.cursor()
-        cur.execute("SELECT * FROM activity_logs ORDER BY timestamp DESC LIMIT 500")
+        cur.execute(
+            "SELECT * FROM activity_logs ORDER BY timestamp DESC LIMIT ?", (limit,)
+        )
         rows = cur.fetchall()
         logs = []
         for r in rows:

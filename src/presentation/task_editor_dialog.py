@@ -542,6 +542,18 @@ class TaskEditorDialog(QDialog):
             self.toast.show_toast("Title is required!")
             return
 
+        # ISO 25010 Security & Data Integrity: Sync with TaskManager validation
+        if len(title) > 255:
+            self.toast.show_toast("Title is too long (max 255)!")
+            return
+
+        malicious_patterns = ["<script>", "javascript:", "onload="]
+        title_lower = title.lower()
+        desc_lower = self.desc_input.toPlainText().lower()
+        if any(p in title_lower or p in desc_lower for p in malicious_patterns):
+            self.toast.show_toast("Invalid characters detected!")
+            return
+
         # --- PAST DUE DATETIME VALIDATION ---
         selected_dt = self._get_selected_datetime()
         current_dt = QDateTime.currentDateTime()

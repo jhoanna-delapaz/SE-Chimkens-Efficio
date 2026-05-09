@@ -1,16 +1,16 @@
 import os
 import sys
 
-from PySide6.QtWidgets import QApplication, QMainWindow
-
-from config import get_default_db_path
-from data.DataBaseHandler import init_db
-from presentation.dashboard import DashboardInterface
-
-# Setup Path
+# Setup Path (MUST BE BEFORE LOCAL IMPORTS)
 current_dir = os.path.dirname(os.path.abspath(__file__))
-sys.path.append(current_dir)
+if current_dir not in sys.path:
+    sys.path.append(current_dir)
 
+from PySide6.QtWidgets import QApplication, QMainWindow  # noqa: E402
+
+from config import get_default_db_path  # noqa: E402
+from data.database_handler import init_db  # noqa: E402
+from presentation.dashboard import DashboardInterface  # noqa: E402
 
 SCROLLBAR_STYLE = """
     QScrollBar:vertical {

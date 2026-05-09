@@ -13,7 +13,7 @@ ISO 25010:
 
 from typing import Callable, List, Optional
 
-from PySide6.QtCore import Qt, QDate, QSize
+from PySide6.QtCore import Qt, QDate, QSize, Signal, QTimer
 from PySide6.QtWidgets import (
     QComboBox,
     QFrame,
@@ -48,10 +48,13 @@ class ActivityLogWidget(QWidget):
     Full Activity Log view with search, filter, and revert capabilities.
     """
 
+    request_more = Signal(int)  # Emits the new limit requested
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._all_logs: List[ActivityLog] = []
         self._on_revert: Optional[Callable] = None
+        self._current_limit = 100
         self._setup_ui()
 
     def set_revert_callback(self, callback: Callable):
@@ -64,12 +67,21 @@ class ActivityLogWidget(QWidget):
         layout.setSpacing(12)
 
         # ── Header ────────────────────────────────────────────────────────────
-        header = QHBoxLayout()
+        header_container = QVBoxLayout()
+        header_container.setSpacing(2)
+
         title = QLabel("Activity History")
         title.setStyleSheet("font-size: 24px; font-weight: bold; color: white;")
-        header.addWidget(title)
-        header.addStretch()
-        layout.addLayout(header)
+
+        subtitle = QLabel("Showing latest 100 entries • 30-day retention policy")
+        subtitle.setStyleSheet(
+            "font-size: 11px; color: rgba(255, 255, 255, 0.4); font-style: italic;"
+        )
+
+        header_container.addWidget(title)
+        header_container.addWidget(subtitle)
+
+        layout.addLayout(header_container)
 
         # ── Heatmap Header Card ───────────────────────────────────────────────
         self.heatmap_card = QFrame()
@@ -127,17 +139,15 @@ class ActivityLogWidget(QWidget):
         # ── Scroll Area ───────────────────────────────────────────────────────
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
-        self.scroll.setFrameShape(QFrame.Shape.NoFrame)
         self.scroll.setStyleSheet("background: transparent; border: none;")
 
-        self.container = QWidget()
-        self.container.setStyleSheet("background: transparent;")
-        self.container_layout = QVBoxLayout(self.container)
-        self.container_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
-        self.container_layout.setSpacing(8)
-        self.container_layout.setContentsMargins(0, 0, 0, 0)
+        self.content = QWidget()
+        self.timeline_layout = QVBoxLayout(self.content)
+        self.timeline_layout.setContentsMargins(10, 10, 10, 10)
+        self.timeline_layout.setSpacing(15)
+        self.timeline_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
-        self.scroll.setWidget(self.container)
+        self.scroll.setWidget(self.content)
         layout.addWidget(self.scroll)
 
     def refresh(self, logs: List[ActivityLog], activity_counts: dict = None):
@@ -145,7 +155,12 @@ class ActivityLogWidget(QWidget):
         self._all_logs = logs
         if activity_counts is not None:
             self._build_heatmap(activity_counts)
+
         self._apply_filters()
+
+    def _on_load_more(self):
+        self._current_limit += 100
+        self.request_more.emit(self._current_limit)
 
     def _build_heatmap(self, counts: dict):
         """Phase 4: Render the activity heatmap in the header card."""
@@ -251,9 +266,13 @@ class ActivityLogWidget(QWidget):
         self._render(filtered)
 
     def _render(self, logs: List[ActivityLog]):
+        # Save current scroll position
+        vbar = self.scroll.verticalScrollBar()
+        old_val = vbar.value()
+
         # Clear existing
-        while self.container_layout.count():
-            item = self.container_layout.takeAt(0)
+        while self.timeline_layout.count():
+            item = self.timeline_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
 
@@ -261,12 +280,44 @@ class ActivityLogWidget(QWidget):
             lbl = QLabel("No matching activity found.")
             lbl.setStyleSheet("color: #808080; font-style: italic; font-size: 14px;")
             lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.container_layout.addWidget(lbl)
+            self.timeline_layout.addWidget(lbl)
             return
 
         for log in logs:
             item = ActivityLogItem(log, revert_callback=self._handle_revert)
-            self.container_layout.addWidget(item)
+            self.timeline_layout.addWidget(item)
+
+        # Dynamically append the Load More button at the very bottom of the scroll list
+        if len(self._all_logs) >= self._current_limit and len(logs) == len(
+            self._all_logs
+        ):
+            load_more_btn = QPushButton("Load More Activities")
+            load_more_btn.setFixedWidth(200)
+            load_more_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: rgba(255,255,255,0.05);
+                    border: 1px solid rgba(255,255,255,0.1);
+                    border-radius: 8px; padding: 10px; margin-top: 10px;
+                    color: rgba(255,255,255,0.7); font-weight: bold;
+                }
+                QPushButton:hover {
+                    background-color: rgba(255,255,255,0.1);
+                    color: white;
+                }
+            """)
+            load_more_btn.clicked.connect(self._on_load_more)
+
+            # Wrap in a horizontal layout to center it
+            btn_container = QWidget()
+            btn_layout = QHBoxLayout(btn_container)
+            btn_layout.setContentsMargins(0, 0, 0, 0)
+            btn_layout.addWidget(load_more_btn)
+
+            self.timeline_layout.addWidget(btn_container)
+
+        # Restore scroll position after layout updates
+        if old_val > 0:
+            QTimer.singleShot(50, lambda v=old_val: vbar.setValue(v))
 
     def _handle_revert(self, log: ActivityLog):
         """Phase 3: Dispatch revert to the registered callback."""
