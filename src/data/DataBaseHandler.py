@@ -1,10 +1,10 @@
 import sqlite3
 from sqlite3 import Error
-from typing import Optional
+from typing import Optional, List
 from data.models import Task
 
 
-def create_connection(db_file):
+def create_connection(db_file: str) -> Optional[sqlite3.Connection]:
     """create a database connection to the SQLite database
         specified by db_file
     :param db_file: database file
@@ -20,7 +20,7 @@ def create_connection(db_file):
     return conn
 
 
-def _serialize_for_sqlite(value) -> str:
+def _serialize_for_sqlite(value: any) -> str:
     """Convert datetime to ISO string for sqlite3 (avoids Python 3.12+ DeprecationWarning)."""
     if value is None:
         return ""
@@ -29,7 +29,7 @@ def _serialize_for_sqlite(value) -> str:
     return str(value) if value else ""
 
 
-def _row_to_task(row) -> Task:
+def _row_to_task(row: tuple) -> Task:
     """Map a DB row to a Task. DB stores created_at/due_date as ISO strings."""
     return Task(
         id=row[0],
@@ -44,7 +44,7 @@ def _row_to_task(row) -> Task:
     )
 
 
-def create_table(conn, create_table_sql):
+def create_table(conn: sqlite3.Connection, create_table_sql: str) -> None:
     """create a table from the create_table_sql statement
     :param conn: Connection object
     :param create_table_sql: a CREATE TABLE statement
@@ -57,7 +57,7 @@ def create_table(conn, create_table_sql):
         print(e)
 
 
-def init_db(db_file):
+def init_db(db_file: str) -> None:
     """
     Initializes the database and safely auto-migrates old schemas
     to prevent application crashes on legacy databases.
@@ -153,7 +153,7 @@ class DataHandler:
         self._conn.commit()
         return cur.lastrowid
 
-    def get_all_tasks(self, search_query: str = "") -> list:
+    def get_all_tasks(self, search_query: str = "") -> List[Task]:
         """Fetches ACTIVE tasks, optionally filtered by a search keyword."""
         cur = self._conn.cursor()
 
@@ -176,7 +176,7 @@ class DataHandler:
         rows = cur.fetchall()
         return [_row_to_task(r) for r in rows]
 
-    def get_deleted_tasks(self, search_query: str = "") -> list:
+    def get_deleted_tasks(self, search_query: str = "") -> List[Task]:
         """Fetches TRASH tasks, optionally filtered by a search keyword."""
         cur = self._conn.cursor()
 

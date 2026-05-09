@@ -44,6 +44,10 @@ _DIALOG_STYLE = """
         border: 1px solid #6579BE;
         background-color: rgba(255, 255, 255, 0.08);
     }
+    QLineEdit:hover, QTextEdit:hover, QDateEdit:hover, QComboBox:hover {
+        background-color: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+    }
     /* Disable calendar popup weird styling */
     QCalendarWidget QWidget {
         alternate-background-color: #2F3239;
