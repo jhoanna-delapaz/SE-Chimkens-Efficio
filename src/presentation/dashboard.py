@@ -2,7 +2,8 @@ import logging
 import os
 from datetime import datetime
 
-from PySide6.QtCore import Qt
+import qtawesome as qta
+from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QCalendarWidget,
@@ -30,6 +31,7 @@ from presentation.components.task_list_view import TaskListView
 from presentation.task_editor_dialog import TaskEditorDialog
 from presentation.trash_widget import TrashWidget
 from presentation.tags_management_widget import TagsManagementWidget
+from presentation.activity_log_widget import ActivityLogWidget
 from utils.constants import UIConstants
 from utils.paths import get_asset_path
 from utils.strings import UIStrings
@@ -136,7 +138,9 @@ class DashboardInterface(QWidget):
         self.sidebar_layout.setSpacing(15)
 
         toggle_container = QHBoxLayout()
-        self.toggle_btn = QPushButton("≡")
+        self.toggle_btn = QPushButton("")
+        self.toggle_btn.setIcon(qta.icon("fa5s.bars", color="white"))
+        self.toggle_btn.setIconSize(QSize(20, 20))
         self.toggle_btn.setFixedSize(
             UIConstants.SIDEBAR_ICON_SIZE, UIConstants.SIDEBAR_ICON_SIZE
         )
@@ -157,26 +161,50 @@ class DashboardInterface(QWidget):
         self.sidebar_layout.addLayout(toggle_container)
 
         self.sidebar_options = []
-        for text in ["Dashboard", "Kanban Board", "Manage Tags", "Trash Bin"]:
+        icon_map = {
+            "Dashboard": "fa5s.columns",
+            "Kanban Board": "fa5s.th-large",
+            "Manage Tags": "fa5s.tags",
+            "Activity Log": "fa5s.history",
+            "Trash Bin": "fa5s.trash-alt",
+        }
+
+        for text in [
+            "Dashboard",
+            "Kanban Board",
+            "Manage Tags",
+            "Activity Log",
+            "Trash Bin",
+        ]:
             btn = QPushButton("")
             btn.setFixedHeight(40)
+
+            icon_name = icon_map.get(text, "fa5s.question")
+            btn.setIcon(qta.icon(icon_name, color="#A0A0A0"))
+            btn.setIconSize(QSize(18, 18))
             btn.setStyleSheet("""
             QPushButton {
-            background-color: rgba(255,255,255,0.05);
-            color: white;
-            border-radius: 10px;
-            font-size: 14px;
-            border: 1px solid rgba(255,255,255,0.1);
+                background-color: rgba(255,255,255,0.05);
+                color: #A0A0A0;
+                border-radius: 10px;
+                font-size: 14px;
+                border: 1px solid rgba(255,255,255,0.1);
+                text-align: left;
+                padding-left: 10px;
             }
             QPushButton:hover {
-            background-color: rgba(255,255,255,0.15);
+                background-color: rgba(255,255,255,0.15);
+                color: white;
             }""")
+
             if text == "Dashboard":
                 btn.clicked.connect(lambda: self.set_mode("active"))
             elif text == "Kanban Board":
                 btn.clicked.connect(lambda: self.set_mode("kanban"))
             elif text == "Manage Tags":
                 btn.clicked.connect(lambda: self.set_mode("tags"))
+            elif text == "Activity Log":
+                btn.clicked.connect(lambda: self.set_mode("activity"))
             elif text == "Trash Bin":
                 btn.clicked.connect(lambda: self.set_mode("trash"))
 
@@ -411,6 +439,8 @@ class DashboardInterface(QWidget):
         self.content_stack.addWidget(self.page_trash)
         self.page_tags = TagsManagementWidget(self, self.task_manager)
         self.content_stack.addWidget(self.page_tags)
+        self.page_activity = ActivityLogWidget(self)
+        self.content_stack.addWidget(self.page_activity)
 
         self.main_layout.addWidget(self.sidebar)
         self.main_layout.addWidget(self.content_stack, stretch=1)
@@ -462,15 +492,17 @@ class DashboardInterface(QWidget):
         self.load_tasks()
 
     def toggle_sidebar(self):
-        """Animated Sidebar functionality"""
+        """Animated Sidebar functionality - Toggles text labels while keeping icons visible."""
         if self.sidebar_expanded:
             self.sidebar.setFixedWidth(UIConstants.SIDEBAR_COLLAPSED_WIDTH)
             for btn, text in self.sidebar_options:
                 btn.setText("")
+                btn.setToolTip(text)  # Show tooltip when collapsed
         else:
             self.sidebar.setFixedWidth(UIConstants.SIDEBAR_EXPANDED_WIDTH)
             for btn, text in self.sidebar_options:
-                btn.setText(text)
+                btn.setText(f"  {text}")  # Spacing after icon
+                btn.setToolTip("")
         self.sidebar_expanded = not self.sidebar_expanded
 
     def handle_sort_change(self, text):
@@ -798,15 +830,35 @@ class DashboardInterface(QWidget):
         elif mode == "active":
             self.title_label.setText(UIStrings.NAV_TASKS)
             self.add_btn.show()
-            self.content_stack.setCurrentIndex(0)  # Dashboard Profile
+            self.content_stack.setCurrentIndex(0)
             self.populate_tag_filters()
             self.load_tasks()
         elif mode == "kanban":
-            # Swaps the screen purely to the massive Kanban Board!
-            self.title_label.setText(UIStrings.NAV_KANBAN)
+            self.title_label.setText("Kanban Board")
+            self.add_btn.show()
             self.content_stack.setCurrentIndex(1)
             self.populate_tag_filters()
             self.load_tasks()
+        elif mode == "activity":
+            self.title_label.setText("Activity Log")
+            self.add_btn.hide()
+            self.content_stack.setCurrentIndex(4)
+            self.page_activity.set_revert_callback(self._do_revert)
+            self.page_activity.refresh(
+                self.task_manager.get_activity_logs(),
+                self.task_manager.get_activity_counts(),
+            )
+
+    def _do_revert(self, log) -> bool:
+        """Phase 3: Executes a revert action and refreshes all views."""
+        success = self.task_manager.revert_from_log(log)
+        if success:
+            self.load_tasks()
+            self.page_activity.refresh(
+                self.task_manager.get_activity_logs(),
+                self.task_manager.get_activity_counts(),
+            )
+        return success
 
     def sync_group_arrow(self, item):
         """
