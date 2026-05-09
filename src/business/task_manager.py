@@ -8,7 +8,7 @@ import sqlite3
 
 from typing import List, Optional, Dict
 from data.DataBaseHandler import DataHandler
-from data.models import Task
+from data.models import Task, Tag
 
 # ISO 25010 Security: Centralized logging prevents internal exception details from leaking
 logger = logging.getLogger(__name__)
@@ -55,6 +55,36 @@ class TaskManager:
     def close(self) -> None:
         """Close DB connection. Call on shutdown to avoid file locks."""
         self._data_handler.close()
+
+    def get_all_tags(self) -> List[Tag]:
+        """Fetches all tags securely."""
+        try:
+            return self._data_handler.get_all_tags()
+        except sqlite3.Error:
+            logger.error("Database Query Error on Get All Tags")
+            return []
+
+    def add_tag(self, tag: Tag) -> int:
+        """Saves a new tag to the database securely."""
+        try:
+            return self._data_handler.add_tag(tag)
+        except sqlite3.Error:
+            logger.error("Database Integrity Error on Add Tag")
+            return -1
+
+    def update_tag(self, tag: Tag) -> None:
+        """Updates a tag securely."""
+        try:
+            self._data_handler.update_tag(tag)
+        except sqlite3.Error:
+            logger.error(f"Database Integrity Error on Update for Tag {tag.id}")
+
+    def delete_tag(self, tag_id: int) -> None:
+        """Deletes a tag securely."""
+        try:
+            self._data_handler.delete_tag(tag_id)
+        except sqlite3.Error:
+            logger.error(f"Database Integrity Error on Delete for Tag {tag_id}")
 
     def add_task(self, task: Task) -> int:
         """Saves a new task to the database safely after validation."""
