@@ -375,6 +375,9 @@ class DashboardInterface(QWidget):
         self.page_trash = TrashWidget(self)
         self.content_stack.addWidget(self.page_trash)
 
+        self.page_trash = TrashWidget(self)
+        self.content_stack.addWidget(self.page_trash)  # Index 2
+
         self.main_layout.addWidget(self.sidebar)
         self.main_layout.addWidget(self.content_stack, stretch=1)
 
@@ -465,6 +468,10 @@ class DashboardInterface(QWidget):
         self.kanban_board_view.render_tasks(tasks, self.current_sort)
 
         # Refresh analytics panel
+        if hasattr(self, "analytics_widget"):
+            self.analytics_widget.refresh(self.task_manager, tasks)
+
+        # Refresh analytics panel so charts always mirror current task state
         if hasattr(self, "analytics_widget"):
             self.analytics_widget.refresh(self.task_manager, tasks)
 
