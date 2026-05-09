@@ -14,7 +14,7 @@ sys.path.append(src_dir)
 
 # Tell Ruff to ignore sorting (I001) and ignore import position (E402) for these 3 files!
 from data.DataBaseHandler import init_db  # noqa: I001, E402
-from data.models import Task, Tag  # noqa: I001, E402
+from data.models import Task, Tag, TaskAttachment  # noqa: I001, E402
 from main import MainWindow  # noqa: I001, E402
 from business.task_manager import TaskManager  # noqa: I001, E402
 
@@ -1114,3 +1114,173 @@ def test_tc030_tag_filtering_logic(app_window):
     dashboard.handle_tag_filter_change(None)
     todo_group = dashboard.task_list_view.task_tree.topLevelItem(0)
     assert todo_group.childCount() == 3
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FT09: Task Image & PDF Attachments
+# TC-031 → TC-034
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_tc031_attachment_persistence(app_window):
+    """[FT09] TC-031: Verify that attachments are saved to the filesystem and DB."""
+    dashboard = app_window.dashboard
+
+    # Create a dummy image file
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+        tmp.write(b"fake image data")
+        tmp_path = tmp.name
+
+    try:
+        # Save attachment via manager
+        result = dashboard.task_manager.save_attachment(tmp_path)
+        assert result is not None
+        new_path, original_name = result
+
+        # Verify file exists in internal storage
+        assert os.path.exists(new_path)
+        assert ".efficio_attachments" in new_path
+
+        # Create task with this attachment
+        attachment = TaskAttachment(None, -1, new_path, original_name)
+        task = Task(
+            None,
+            "Attach Task",
+            "",
+            "Pending",
+            datetime.now(),
+            None,
+            "High",
+            attachments=[attachment],
+        )
+        task_id = dashboard.task_manager.add_task(task)
+
+        # Reload and verify
+        db_task = dashboard.task_manager.get_task_by_id(task_id)
+        assert len(db_task.attachments) == 1
+        assert db_task.attachments[0].file_name == os.path.basename(tmp_path)
+        assert os.path.exists(db_task.attachments[0].file_path)
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+
+def test_tc032_pdf_attachment_support(app_window):
+    """[FT09] TC-032: Verify PDF support in the attachment system."""
+    dashboard = app_window.dashboard
+
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+        tmp.write(b"%PDF-1.4 dummy pdf")
+        tmp_path = tmp.name
+
+    try:
+        result = dashboard.task_manager.save_attachment(tmp_path)
+        assert result is not None
+        new_path, _ = result
+        assert new_path.lower().endswith(".pdf")
+
+        attachment = TaskAttachment(None, -1, new_path, os.path.basename(tmp_path))
+        task = Task(
+            None,
+            "PDF Task",
+            "",
+            "Pending",
+            datetime.now(),
+            None,
+            "Medium",
+            attachments=[attachment],
+        )
+        task_id = dashboard.task_manager.add_task(task)
+
+        db_task = dashboard.task_manager.get_task_by_id(task_id)
+        assert db_task.attachments[0].file_path.endswith(".pdf")
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+
+def test_tc033_attachment_cleanup_on_delete(app_window, monkeypatch):
+    """[FT09] TC-033: Verify physical files are deleted on permanent task removal."""
+    dashboard = app_window.dashboard
+
+    # Setup task with attachment
+    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+        tmp.write(b"data")
+        tmp_path = tmp.name
+
+    result = dashboard.task_manager.save_attachment(tmp_path)
+    new_path, _ = result
+
+    attachment = TaskAttachment(None, -1, new_path, "test.jpg")
+    task = Task(
+        None,
+        "Delete Me",
+        "",
+        "Pending",
+        datetime.now(),
+        None,
+        "Low",
+        attachments=[attachment],
+    )
+    task_id = dashboard.task_manager.add_task(task)
+
+    assert os.path.exists(new_path)
+
+    # Soft delete
+    dashboard.task_manager.delete_task(task_id)
+    assert os.path.exists(new_path)  # Should still exist in trash
+
+    # Permanent delete
+    monkeypatch.setattr(
+        QMessageBox, "warning", lambda *args: QMessageBox.StandardButton.Yes
+    )
+    dashboard.task_manager.permanently_delete_task(task_id)
+
+    # Verify file is GONE from disk
+    assert not os.path.exists(new_path)
+
+
+def test_tc034_kanban_attachment_carousel_render(app_window):
+    """[FT09] TC-034: Verify Kanban card renders the attachment carousel."""
+    dashboard = app_window.dashboard
+
+    # Create task with 2 attachments
+    attachments = []
+    for i in range(2):
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+            tmp.write(b"img")
+            p = tmp.name
+        res = dashboard.task_manager.save_attachment(p)
+        attachments.append(TaskAttachment(None, -1, res[0], res[1]))
+        os.remove(p)
+
+    task = Task(
+        None,
+        "Carousel Task",
+        "",
+        "Pending",
+        datetime.now(),
+        None,
+        "High",
+        attachments=attachments,
+    )
+    dashboard.task_manager.add_task(task)
+
+    # Switch to Kanban
+    dashboard.set_mode("kanban")
+    dashboard.load_tasks()
+
+    # Find card
+    todo_content = dashboard.kanban_board_view.todo_content
+    card = todo_content.itemAt(0).widget()
+
+    # Check for QScrollArea (carousel)
+    from PySide6.QtWidgets import QScrollArea
+
+    carousels = card.findChildren(QScrollArea)
+    assert len(carousels) == 1
+
+    # Verify it has 2 thumbnails (QLabels in the scroll area's widget)
+    thumbs = carousels[0].widget().findChildren(QLabel)
+    # Note: carousel_layout might have an extra stretch, but widgets should be 2
+    assert len(thumbs) == 2

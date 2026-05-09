@@ -651,6 +651,7 @@ class DashboardInterface(QWidget):
                     priority=data["priority"],
                     color=data.get("color", "#333333"),
                     tags=data.get("tags", []),
+                    attachments=data.get("attachments", []),
                 )
                 self.task_manager.update_task(updated_task)
                 self.load_tasks()
@@ -692,6 +693,7 @@ class DashboardInterface(QWidget):
                 priority=data["priority"],
                 color=data.get("color", "#333333"),
                 tags=data.get("tags", []),
+                attachments=data.get("attachments", []),
             )
 
             # Save to DB safely
