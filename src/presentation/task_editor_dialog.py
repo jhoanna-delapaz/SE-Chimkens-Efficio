@@ -287,6 +287,40 @@ class TaskEditorDialog(QDialog):
 
         # 4. Action Footer (Save / Cancel)
         btn_layout = QHBoxLayout()
+
+        # Phase 3.7: Show Creation Date (Audit Info)
+        if task and hasattr(task, "created_at") and task.created_at:
+            try:
+                from datetime import datetime as _dt
+
+                raw = task.created_at
+                if isinstance(raw, str):
+                    # Try formats in order, including microsecond variants
+                    for fmt in (
+                        "%Y-%m-%dT%H:%M:%S.%f",
+                        "%Y-%m-%d %H:%M:%S.%f",
+                        "%Y-%m-%dT%H:%M:%S",
+                        "%Y-%m-%d %H:%M:%S",
+                        "%Y-%m-%d",
+                    ):
+                        try:
+                            raw = _dt.strptime(raw, fmt)
+                            break
+                        except ValueError:
+                            continue
+                created_str = (
+                    raw.strftime("%b %d, %Y — %I:%M %p")
+                    if hasattr(raw, "strftime")
+                    else str(raw)
+                )
+            except Exception:
+                created_str = str(task.created_at)
+            created_lbl = QLabel(f"Created: {created_str}")
+            created_lbl.setStyleSheet(
+                "color: #606060; font-size: 11px; font-weight: normal;"
+            )
+            btn_layout.addWidget(created_lbl)
+
         btn_layout.addStretch()
 
         self.cancel_btn = QPushButton("Cancel")
@@ -401,6 +435,13 @@ class TaskEditorDialog(QDialog):
             ext = os.path.splitext(path)[1].lower()
             if ext not in SUPPORTED_EXTENSIONS:
                 self.toast.show_toast(f"Unsupported type: {ext}")
+                continue
+
+            # Check size before sending to manager for better UI feedback
+            if os.path.getsize(path) > 10 * 1024 * 1024:
+                self.toast.show_toast(
+                    f"File too large (>10MB): {os.path.basename(path)}"
+                )
                 continue
 
             # Save file via task manager

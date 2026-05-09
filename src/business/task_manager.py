@@ -5,13 +5,15 @@ Keeps core logic DB-agnostic for easier testing and future upgrades.
 
 import logging
 import sqlite3
+import json
 
 import os
 import shutil
 import uuid
 from typing import List, Optional, Dict
 from data.DataBaseHandler import DataHandler
-from data.models import Task, Tag
+from data.models import Task, Tag, ActivityLog
+from datetime import datetime
 
 # ISO 25010 Security: Centralized logging prevents internal exception details from leaking
 logger = logging.getLogger(__name__)
@@ -60,30 +62,28 @@ class TaskManager:
 
         return True
 
-    def _validate_task(self, task: Task) -> bool:
-        """Validates task integrity to prevent malicious or malformed injections."""
-        if not task.title or not task.title.strip():
-            logger.warning(
-                "Security/Validation Alert: Blocked attempt to save task with empty title."
+    def log_action(
+        self,
+        task_id: Optional[int],
+        task_title: str,
+        action: str,
+        details: str = "",
+        snapshot: str = "",
+    ):
+        """Helper to record an activity log entry with optional JSON state snapshot."""
+        try:
+            log = ActivityLog(
+                id=None,
+                task_id=task_id,
+                task_title=task_title,
+                action=action,
+                details=details,
+                timestamp=datetime.now(),
+                snapshot=snapshot or "",
             )
-            return False
-        if len(task.title) > 255:
-            logger.warning(
-                "Security/Validation Alert: Task title exceeds maximum allowed length."
-            )
-            return False
-
-        # Basic anti-XSS heuristic
-        malicious_patterns = ["<script>", "javascript:", "onload="]
-        title_lower = task.title.lower()
-        desc_lower = (task.description or "").lower()
-        if any(p in title_lower or p in desc_lower for p in malicious_patterns):
-            logger.warning(
-                "Security/Validation Alert: Blocked potential script injection attempt."
-            )
-            return False
-
-        return True
+            self._data_handler.add_activity_log(log)
+        except Exception as e:
+            logger.error(f"Failed to log activity: {e}")
 
     def close(self) -> None:
         """Close DB connection. Call on shutdown to avoid file locks."""
@@ -124,7 +124,10 @@ class TaskManager:
         if not self._validate_task(task):
             return -1
         try:
-            return self._data_handler.add_task(task)
+            task_id = self._data_handler.add_task(task)
+            if task_id != -1:
+                self.log_action(task_id, task.title, "Created")
+            return task_id
         except sqlite3.Error:
             logger.error(
                 "Database Integrity Error on Add (details masked for security)"
@@ -154,25 +157,79 @@ class TaskManager:
     def delete_task(self, task_id: int) -> None:
         """Deletes a task safely."""
         try:
+            task = self.get_task_by_id(task_id)
             self._data_handler.delete_task(task_id)
+            if task:
+                self.log_action(task_id, task.title, "Moved to Trash")
         except sqlite3.Error:
             logger.error(f"Database Integrity Error on Delete for Task {task_id}")
 
     def update_task_status(self, task_id: int, status: str) -> None:
         """Updates just the string status of a specific task."""
         try:
+            old_task = self.get_task_by_id(task_id)
             self._data_handler.update_task_status(task_id, status)
+            if old_task:
+                details = f"Status changed from '{old_task.status}' to '{status}'"
+                # Store revert snapshot
+                snapshot = json.dumps(
+                    {"action": "status_change", "old_status": old_task.status}
+                )
+                self.log_action(
+                    task_id, old_task.title, "Status Changed", details, snapshot
+                )
         except sqlite3.Error:
             logger.error(
                 f"Database Integrity Error on Update Status for Task {task_id}"
             )
 
     def update_task(self, task: Task) -> None:
-        """Updates an entire task object securely after validation."""
+        """Updates an entire task object securely after validation.
+
+        Performs field-level diffing to generate a human-readable changelog,
+        and stores a JSON snapshot of the old state for potential Revert support.
+        """
         if not self._validate_task(task):
             return
         try:
+            old_task = self.get_task_by_id(task.id)
             self._data_handler.update_task(task)
+
+            if old_task:
+                # --- Phase 1: Field-Level Diffing ---
+                diffs = []
+                if old_task.title != task.title:
+                    diffs.append(f"Title: '{old_task.title}' -> '{task.title}'")
+                if old_task.description != task.description:
+                    diffs.append("Description updated")
+                if old_task.priority != task.priority:
+                    diffs.append(f"Priority: {old_task.priority} -> {task.priority}")
+                if str(old_task.due_date) != str(task.due_date):
+                    diffs.append("Due Date changed")
+                if old_task.status != task.status:
+                    diffs.append(f"Status: {old_task.status} -> {task.status}")
+                if old_task.color != task.color:
+                    diffs.append("Color updated")
+
+                details = "; ".join(diffs) if diffs else "No significant changes"
+
+                # --- Phase 3: Store snapshot for Revert ---
+                snapshot = json.dumps(
+                    {
+                        "action": "edit",
+                        "old_title": old_task.title,
+                        "old_description": old_task.description or "",
+                        "old_status": old_task.status,
+                        "old_priority": old_task.priority,
+                        "old_due_date": str(old_task.due_date)
+                        if old_task.due_date
+                        else "",
+                        "old_color": old_task.color,
+                    }
+                )
+                self.log_action(task.id, task.title, "Edited", details, snapshot)
+            else:
+                self.log_action(task.id, task.title, "Edited")
         except sqlite3.Error:
             logger.error(f"Database Integrity Error on Update for Task {task.id}")
 
@@ -190,6 +247,9 @@ class TaskManager:
         """Restores a task from the Trash securely."""
         try:
             self._data_handler.restore_task(task_id)
+            task = self.get_task_by_id(task_id)
+            if task:
+                self.log_action(task_id, task.title, "Restored")
         except sqlite3.Error:
             logger.error(f"Database Integrity Error on Restore for Task {task_id}")
 
@@ -205,6 +265,8 @@ class TaskManager:
                     except Exception as e:
                         logger.error(f"Failed to delete attachment file: {e}")
 
+            if task:
+                self.log_action(task_id, task.title, "Permanently Deleted")
             self._data_handler.permanently_delete_task(task_id)
         except sqlite3.Error:
             logger.error(
@@ -218,6 +280,12 @@ class TaskManager:
         """
         try:
             if not os.path.exists(source_path) or not os.path.isfile(source_path):
+                return None
+
+            # ISO 25010 Performance: Limit file size to 10MB to prevent storage bloat
+            MAX_SIZE = 10 * 1024 * 1024  # 10 MB
+            if os.path.getsize(source_path) > MAX_SIZE:
+                logger.warning(f"Attachment Blocked: {source_path} exceeds 10MB limit.")
                 return None
 
             file_name = os.path.basename(source_path)
@@ -318,3 +386,66 @@ class TaskManager:
                         pass  # Malformed string - silently skip
 
         return stats
+
+    def get_activity_logs(self) -> List[ActivityLog]:
+        """Fetches the history of actions from the database."""
+        try:
+            return self._data_handler.get_activity_logs()
+        except sqlite3.Error:
+            logger.error("Database Query Error on Get Activity Logs")
+            return []
+
+    def get_activity_counts(self) -> dict:
+        """Returns { 'YYYY-MM-DD': count } for the heatmap."""
+        try:
+            return self._data_handler.get_activity_counts()
+        except sqlite3.Error:
+            logger.error("Database Query Error on Get Activity Counts")
+            return {}
+
+    def revert_from_log(self, log: ActivityLog) -> bool:
+        """
+        Phase 3: Revert a task to its previous state using the log's JSON snapshot.
+        Returns True on success, False on failure.
+        """
+        if not log.snapshot:
+            return False
+        try:
+            data = json.loads(log.snapshot)
+            action = data.get("action", "")
+
+            if action == "status_change":
+                old_status = data.get("old_status")
+                if old_status and log.task_id:
+                    self._data_handler.update_task_status(log.task_id, old_status)
+                    self.log_action(
+                        log.task_id,
+                        log.task_title,
+                        "Reverted",
+                        f"Status reverted to '{old_status}'",
+                    )
+                    return True
+
+            elif action == "edit":
+                task = self.get_task_by_id(log.task_id)
+                if task:
+                    task.title = data.get("old_title", task.title)
+                    task.description = data.get("old_description", task.description)
+                    task.status = data.get("old_status", task.status)
+                    task.priority = data.get("old_priority", task.priority)
+                    task.color = data.get("old_color", task.color)
+                    # Restore due_date string if present
+                    old_due = data.get("old_due_date", "")
+                    task.due_date = old_due if old_due else None
+                    self._data_handler.update_task(task)
+                    self.log_action(
+                        task.id,
+                        task.title,
+                        "Reverted",
+                        "Task restored to previous state",
+                    )
+                    return True
+
+        except Exception as e:
+            logger.error(f"Revert failed: {e}")
+        return False

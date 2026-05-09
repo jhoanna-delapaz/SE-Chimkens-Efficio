@@ -1282,5 +1282,160 @@ def test_tc034_kanban_attachment_carousel_render(app_window):
 
     # Verify it has 2 thumbnails (QLabels in the scroll area's widget)
     thumbs = carousels[0].widget().findChildren(QLabel)
+    # Verify it has 2 thumbnails (QLabels in the scroll area's widget)
+    thumbs = carousels[0].widget().findChildren(QLabel)
     # Note: carousel_layout might have an extra stretch, but widgets should be 2
     assert len(thumbs) == 2
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FT07: Task Activity Log History
+# TC-035 → TC-040
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_tc035_log_creation_on_add(app_window):
+    """[FT07] TC-035: Adding a task must trigger a 'Created' log entry."""
+    tm = app_window.dashboard.task_manager
+    t = Task(None, "Log Test", "", "Pending", datetime.now(), None, "Low")
+    tm.add_task(t)
+
+    logs = tm.get_activity_logs()
+    assert len(logs) >= 1
+    assert logs[0].action == "Created"
+    assert logs[0].task_title == "Log Test"
+
+
+def test_tc036_log_edit_with_field_diff(app_window):
+    """[FT07] TC-036: Editing a task logs field-level differences (Phase 1)."""
+    tm = app_window.dashboard.task_manager
+    t = Task(None, "Original Title", "Old Desc", "Pending", datetime.now(), None, "Low")
+    tid = tm.add_task(t)
+
+    # Modify multiple fields
+    t.id = tid
+    t.title = "New Title"
+    t.priority = "Critical"
+    tm.update_task(t)
+
+    logs = tm.get_activity_logs()
+    # logs[0] is Edited, logs[1] is Created
+    assert logs[0].action == "Edited"
+    assert "Title: 'Original Title' -> 'New Title'" in logs[0].details
+    assert "Priority: Low -> Critical" in logs[0].details
+
+
+def test_tc037_log_status_change(app_window):
+    """[FT07] TC-037: Changing status logs the transition."""
+    tm = app_window.dashboard.task_manager
+    tid = tm.add_task(
+        Task(None, "Status Task", "", "Pending", datetime.now(), None, "Low")
+    )
+
+    tm.update_task_status(tid, "Completed")
+    logs = tm.get_activity_logs()
+    assert logs[0].action == "Status Changed"
+    assert "Status changed from 'Pending' to 'Completed'" in logs[0].details
+
+
+def test_tc038_revert_status_change(app_window):
+    """[FT07] TC-038: Reverting a status change restores the task to its previous lane (Phase 3)."""
+    tm = app_window.dashboard.task_manager
+    tid = tm.add_task(
+        Task(None, "Revert Status", "", "Pending", datetime.now(), None, "Low")
+    )
+
+    tm.update_task_status(tid, "Completed")
+    logs = tm.get_activity_logs()
+    assert tm.get_task_by_id(tid).status == "Completed"
+
+    # Execute Revert
+    success = tm.revert_from_log(logs[0])
+    assert success is True
+    assert tm.get_task_by_id(tid).status == "Pending"
+
+    # Check that a 'Reverted' log was added
+    new_logs = tm.get_activity_logs()
+    assert new_logs[0].action == "Reverted"
+
+
+def test_tc039_revert_task_edit(app_window):
+    """[FT07] TC-039: Reverting an edit restores all previous task fields."""
+    tm = app_window.dashboard.task_manager
+    t = Task(None, "Before", "Old Description", "Pending", datetime.now(), None, "Low")
+    tid = tm.add_task(t)
+
+    t.id = tid
+    t.title = "After"
+    t.description = "New Description"
+    tm.update_task(t)
+
+    logs = tm.get_activity_logs()
+    success = tm.revert_from_log(logs[0])
+    assert success is True
+
+    reverted_task = tm.get_task_by_id(tid)
+    assert reverted_task.title == "Before"
+    assert reverted_task.description == "Old Description"
+
+
+def test_tc040_heatmap_data_retrieval(app_window):
+    """[FT07] TC-040: heatmap data retrieval returns counts for active days."""
+    tm = app_window.dashboard.task_manager
+    today_str = datetime.now().strftime("%Y-%m-%d")
+
+    # Add a task to generate activity
+    tm.add_task(Task(None, "Heatmap Task", "", "Pending", datetime.now(), None, "Low"))
+
+    counts = tm.get_activity_counts()
+    assert today_str in counts
+    assert counts[today_str] >= 1
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FT08: Sidebar Navigation Icons
+# TC-041 → TC-043
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_tc041_sidebar_icons_present(app_window):
+    """[FT08] TC-041: Verify each sidebar button has a valid icon."""
+    dash = app_window.dashboard
+    # 5 buttons in setup_ui loop
+    assert len(dash.sidebar_options) == 5
+
+    for btn, text in dash.sidebar_options:
+        icon = btn.icon()
+        assert not icon.isNull(), f"Icon for {text} should not be null"
+
+
+def test_tc042_sidebar_tooltips_on_collapse(app_window):
+    """[FT08] TC-042: Verify tooltips appear when collapsed and vanish when expanded."""
+    dash = app_window.dashboard
+
+    # Start: Expanded (usually false by default in init, but let's check current state)
+    if not dash.sidebar_expanded:
+        dash.toggle_sidebar()  # Expand it
+
+    # In expanded mode, tooltips should be empty
+    for btn, text in dash.sidebar_options:
+        assert btn.toolTip() == ""
+
+    # Collapse it
+    dash.toggle_sidebar()
+    assert dash.sidebar_expanded is False
+
+    # In collapsed mode, tooltips should match button text
+    for btn, text in dash.sidebar_options:
+        assert btn.toolTip() == text
+
+
+def test_tc043_sidebar_icon_persistence(app_window):
+    """[FT08] TC-043: Verify icons remain visible and set during toggle."""
+    dash = app_window.dashboard
+
+    # Toggle multiple times
+    for _ in range(4):
+        dash.toggle_sidebar()
+        for btn, text in dash.sidebar_options:
+            assert not btn.icon().isNull()

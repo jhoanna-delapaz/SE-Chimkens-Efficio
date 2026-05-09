@@ -346,18 +346,14 @@ class AnalyticsWidget(QWidget):
         layout.addWidget(chip)
 
     def _render_empty_state(self) -> None:
-        """Render a friendly placeholder when the task database is empty.
-
-        Called on first initialisation and whenever refresh() receives a
-        zero-task stats dict. Clears all three containers and injects a
-        single centred label with premium typography.
-        """
+        """Render a friendly placeholder when the task database is empty."""
         for container in (
             self._donut_container,
             self._priority_container,
             self._overdue_container,
         ):
             self._clear_container(container)
+        # Keep heatmap visible even with no tasks — log may still have data
 
         layout = self._donut_container.layout()
         empty_lbl = QLabel("No tasks yet\nStart planning to see insights!")

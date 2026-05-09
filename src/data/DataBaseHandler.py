@@ -1,7 +1,7 @@
 import sqlite3
 from sqlite3 import Error
 from typing import Optional, List
-from data.models import Task, Tag, TaskAttachment
+from data.models import Task, Tag, TaskAttachment, ActivityLog
 
 
 def create_connection(db_file: str) -> Optional[sqlite3.Connection]:
@@ -102,6 +102,16 @@ def init_db(db_file: str) -> None:
                                             FOREIGN KEY (task_id) REFERENCES tasks (id) ON DELETE CASCADE
                                         ); """
 
+    sql_create_activity_logs_table = """ CREATE TABLE IF NOT EXISTS activity_logs (
+                                            id integer PRIMARY KEY,
+                                            task_id integer,
+                                            task_title text NOT NULL,
+                                            action text NOT NULL,
+                                            details text,
+                                            timestamp text NOT NULL,
+                                            snapshot text
+                                        ); """
+
     # create a database connection
     conn = create_connection(database)
 
@@ -113,6 +123,7 @@ def init_db(db_file: str) -> None:
             create_table(conn, sql_create_tags_table)
             create_table(conn, sql_create_task_tags_table)
             create_table(conn, sql_create_attachments_table)
+            create_table(conn, sql_create_activity_logs_table)
 
             # ISO 25010 Reliability: Safely attempt to migrate older databases
             try:
@@ -392,3 +403,70 @@ class DataHandler:
         cur = self._conn.cursor()
         cur.execute("DELETE FROM tasks WHERE id=?", (task_id,))
         self._conn.commit()
+
+    def add_activity_log(self, log: ActivityLog) -> int:
+        # Migrate snapshot column if this is an older DB
+        try:
+            self._conn.execute("ALTER TABLE activity_logs ADD COLUMN snapshot text")
+            self._conn.commit()
+        except Exception:
+            pass
+
+        cur = self._conn.cursor()
+        cur.execute(
+            """INSERT INTO activity_logs (task_id, task_title, action, details, timestamp, snapshot)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (
+                log.task_id,
+                log.task_title,
+                log.action,
+                log.details or "",
+                _serialize_for_sqlite(log.timestamp),
+                log.snapshot or "",
+            ),
+        )
+        self._conn.commit()
+        return cur.lastrowid
+
+    def get_activity_logs(self) -> List[ActivityLog]:
+        cur = self._conn.cursor()
+        cur.execute("SELECT * FROM activity_logs ORDER BY timestamp DESC LIMIT 500")
+        rows = cur.fetchall()
+        logs = []
+        for r in rows:
+            ts_str = r[5]
+            # Handle possible string to datetime conversion
+            try:
+                from datetime import datetime
+
+                ts = datetime.fromisoformat(ts_str)
+            except Exception:
+                ts = datetime.now()
+
+            logs.append(
+                ActivityLog(
+                    id=r[0],
+                    task_id=r[1],
+                    task_title=r[2],
+                    action=r[3],
+                    details=r[4],
+                    timestamp=ts,
+                    snapshot=r[6] if len(r) > 6 else None,
+                )
+            )
+        return logs
+
+    def get_activity_counts(self) -> dict:
+        """Returns a dict of { 'YYYY-MM-DD': count } for the last 365 days."""
+        from datetime import datetime, timedelta
+
+        cur = self._conn.cursor()
+        # Slice only the date part from the ISO timestamp
+        cur.execute(
+            """SELECT substr(timestamp, 1, 10) as day, COUNT(*) as cnt
+               FROM activity_logs
+               WHERE timestamp >= ?
+               GROUP BY day""",
+            (_serialize_for_sqlite(datetime.now() - timedelta(days=365)),),
+        )
+        return {row[0]: row[1] for row in cur.fetchall()}
