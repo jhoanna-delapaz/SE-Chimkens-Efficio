@@ -30,7 +30,6 @@ jobs:
     - name: Build Standalone Executable
       run: |
         pyinstaller --noconfirm Efficio.spec
-        Copy-Item config.py dist\Efficio\
         Compress-Archive -Path dist\Efficio\* -DestinationPath Efficio-Windows.zip
 
     - name: Release to GitHub
