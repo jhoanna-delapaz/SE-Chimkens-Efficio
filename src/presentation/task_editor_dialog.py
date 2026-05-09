@@ -4,45 +4,88 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDateEdit,
     QDialog,
-    QDialogButtonBox,
     QGraphicsDropShadowEffect,
+    QGridLayout,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
+    QPushButton,
     QTextEdit,
     QVBoxLayout,
 )
+
+_DIALOG_STYLE = """
+    QDialog {
+        background-color: #1E2328;
+    }
+    QLabel {
+        color: #FFFFFF;
+        font-weight: bold;
+        font-size: 13px;
+    }
+    QLineEdit, QTextEdit, QDateEdit, QComboBox {
+        background-color: rgba(255, 255, 255, 0.05);
+        color: white;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 6px;
+        padding: 8px 12px;
+        font-size: 14px;
+    }
+    QLineEdit:focus, QTextEdit:focus, QDateEdit:focus, QComboBox:focus {
+        border: 1px solid #6579BE;
+        background-color: rgba(255, 255, 255, 0.08);
+    }
+    /* Disable calendar popup weird styling */
+    QCalendarWidget QWidget {
+        alternate-background-color: #2F3239;
+    }
+"""
 
 
 class TaskEditorDialog(QDialog):
     def __init__(self, parent=None, task=None):
         super().__init__(parent)
-        self.setWindowTitle("Edit Task" if task else "Add New Task")
-        self.setMinimumWidth(400)
+        self.setWindowTitle("Edit Task" if task else "Create New Task")
+        self.setMinimumWidth(500)
+        self.setStyleSheet(_DIALOG_STYLE)
         self.task = task
 
         layout = QVBoxLayout(self)
+        layout.setSpacing(15)
+        layout.setContentsMargins(25, 25, 25, 25)
 
         # Initialize floating toast (does not get added to layout)
         self.toast = ToastNotification(self)
 
-        # Title
-        layout.addWidget(QLabel("Title (Required):"))
+        # 1. Header
+        header_lbl = QLabel("✏️ Edit Task" if task else "✨ Create New Task")
+        header_lbl.setStyleSheet("font-size: 22px; font-weight: bold; color: white;")
+        layout.addWidget(header_lbl)
+
+        # 2. Main Inputs (Title & Description)
+        layout.addWidget(QLabel("Task Title (Required)"))
         self.title_input = QLineEdit()
+        self.title_input.setPlaceholderText("e.g. Prepare Q3 Marketing Report")
         if task:
             self.title_input.setText(task.title)
         layout.addWidget(self.title_input)
 
-        # Description
-        layout.addWidget(QLabel("Description:"))
+        layout.addWidget(QLabel("Task Description"))
         self.desc_input = QTextEdit()
-        self.desc_input.setMaximumHeight(100)
+        self.desc_input.setPlaceholderText("Add any relevant context or notes here...")
+        self.desc_input.setMaximumHeight(80)
         if task:
             self.desc_input.setText(task.description or "")
         layout.addWidget(self.desc_input)
 
-        # Due Date
-        layout.addWidget(QLabel("Due Date:"))
+        # 3. Metadata Grid (2x2)
+        grid = QGridLayout()
+        grid.setSpacing(15)
+
+        # Row 0, Col 0: Due Date
+        grid.addWidget(QLabel("Due Date"), 0, 0)
         self.date_input = QDateEdit()
+        self.date_input.setCalendarPopup(True)
         if task and task.due_date:
             due_str = str(task.due_date).strip()
             if due_str:
@@ -55,23 +98,31 @@ class TaskEditorDialog(QDialog):
                 self.date_input.setDate(QDate.currentDate())
         else:
             self.date_input.setDate(QDate.currentDate())
-        self.date_input.setCalendarPopup(True)
-        layout.addWidget(self.date_input)
+        grid.addWidget(self.date_input, 1, 0)
 
-        # Priority
-        layout.addWidget(QLabel("Priority:"))
+        # Row 0, Col 1: Priority
+        grid.addWidget(QLabel("Priority"), 0, 1)
         self.priority_input = QComboBox()
         self.priority_input.addItems(["Low", "Medium", "High", "Critical"])
         if task and task.priority:
             index = self.priority_input.findText(task.priority)
             if index >= 0:
                 self.priority_input.setCurrentIndex(index)
-        layout.addWidget(self.priority_input)
+        grid.addWidget(self.priority_input, 1, 1)
 
-        # Color
-        layout.addWidget(QLabel("Task Color:"))
+        # Row 2, Col 0: Status
+        grid.addWidget(QLabel("Status"), 2, 0)
+        self.status_input = QComboBox()
+        self.status_input.addItems(["Pending", "In Progress", "Completed"])
+        if task and hasattr(task, "status"):
+            index = self.status_input.findText(task.status)
+            if index >= 0:
+                self.status_input.setCurrentIndex(index)
+        grid.addWidget(self.status_input, 3, 0)
+
+        # Row 2, Col 1: Color Theme
+        grid.addWidget(QLabel("Theme Color"), 2, 1)
         self.color_combo = QComboBox()
-        # Original Soft Themes
         self.color_combo.addItem("🌊 Ocean Peach", "#6579BE")
         self.color_combo.addItem("🏜️ Warm Sand", "#E9DFD8")
         self.color_combo.addItem("🔥 Vibrant Orange", "#F54800")
@@ -81,12 +132,8 @@ class TaskEditorDialog(QDialog):
         self.color_combo.addItem("🐋 Deep Ocean", "#19485F")
         self.color_combo.addItem("🌲 Forest Pink", "#285B23")
         self.color_combo.addItem("🥀 Dusty Rose", "#92736C")
-
-        # New High-Contrast & Solid Themes
         self.color_combo.addItem("🌑 Pitch Black (White Text)", "#000000")
         self.color_combo.addItem("🌕 Pure White (Black Text)", "#FFFFFF")
-
-        # We use slight micro-shades of White/Black to keep Python Dictionaries happy
         self.color_combo.addItem("🌫️ Frost White (Gray Text)", "#FFFFFE")
         self.color_combo.addItem("☁️ Light Gray (White Text)", "#DDDDDD")
         self.color_combo.addItem("🥶 Ice White (Blue Text)", "#FFFFFD")
@@ -97,15 +144,41 @@ class TaskEditorDialog(QDialog):
             index = self.color_combo.findData(task.color)
             if index >= 0:
                 self.color_combo.setCurrentIndex(index)
-        layout.addWidget(self.color_combo)
+        grid.addWidget(self.color_combo, 3, 1)
 
-        # Buttons
-        self.button_box = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
-        self.button_box.accepted.connect(self.validate_and_accept)
-        self.button_box.rejected.connect(self.reject)
-        layout.addWidget(self.button_box)
+        layout.addLayout(grid)
+        layout.addSpacing(10)
+
+        # 4. Action Footer (Save / Cancel)
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+
+        self.cancel_btn = QPushButton("Cancel")
+        self.cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.cancel_btn.setStyleSheet("""
+            QPushButton {
+                background-color: transparent;
+                color: #A0A0A0; font-weight: bold; padding: 10px 20px; border-radius: 6px;
+            }
+            QPushButton:hover { background-color: rgba(255, 255, 255, 0.05); color: white; }
+        """)
+        self.cancel_btn.clicked.connect(self.reject)
+
+        self.save_btn = QPushButton("Save Task")
+        self.save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.save_btn.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(40, 91, 35, 0.85);
+                color: white; font-weight: bold; padding: 10px 24px; border-radius: 6px;
+            }
+            QPushButton:hover { background-color: rgba(40, 91, 35, 1.0); }
+        """)
+        self.save_btn.clicked.connect(self.validate_and_accept)
+
+        btn_layout.addWidget(self.cancel_btn)
+        btn_layout.addWidget(self.save_btn)
+
+        layout.addLayout(btn_layout)
 
     def validate_and_accept(self):
         title = self.title_input.text().strip()
@@ -145,7 +218,7 @@ class TaskEditorDialog(QDialog):
             "description": self.desc_input.toPlainText().strip(),
             "due_date": self.date_input.date().toString(Qt.DateFormat.ISODate),
             "priority": self.priority_input.currentText(),
-            "status": self.task.status if self.task else "Pending",
+            "status": self.status_input.currentText(),
             "color": self.color_combo.currentData(),  # Extract the hidden Hex Code
         }
 
