@@ -5,8 +5,9 @@ Keeps core logic DB-agnostic for easier testing and future upgrades.
 
 import logging
 import sqlite3
-from data.models import Task
+
 from data.DataBaseHandler import DataHandler
+from data.models import Task
 
 # ISO 25010 Security: Centralized logging prevents internal exception details from leaking
 logger = logging.getLogger(__name__)
@@ -179,7 +180,7 @@ class TaskManager:
         else:
             tasks = tasks_list
 
-        from datetime import date
+        from datetime import datetime
 
         stats: dict = {
             "Pending": 0,
@@ -193,7 +194,7 @@ class TaskManager:
             "total": len(tasks),
         }
 
-        today = date.today()
+        now = datetime.now()
 
         for task in tasks:
             # Status aggregation
@@ -204,13 +205,22 @@ class TaskManager:
             if task.priority in stats:
                 stats[task.priority] += 1
 
-            # Overdue detection: non-completed tasks with a past due date
+            # Overdue detection: non-completed tasks with a past due datetime
             if task.status != "Completed" and task.due_date:
+                due_str = str(task.due_date).strip()
                 try:
-                    due = date.fromisoformat(str(task.due_date).strip())
-                    if due < today:
+                    due = datetime.fromisoformat(due_str)
+                    if due < now:
                         stats["overdue"] += 1
                 except ValueError:
-                    pass  # Malformed date — silently skip
+                    try:
+                        # Legacy task with no time, just date
+                        # We assume end of day for deadline
+                        legacy_date = datetime.strptime(due_str, "%Y-%m-%d")
+                        legacy_due = legacy_date.replace(hour=23, minute=59, second=59)
+                        if legacy_due < now:
+                            stats["overdue"] += 1
+                    except ValueError:
+                        pass  # Malformed string - silently skip
 
         return stats

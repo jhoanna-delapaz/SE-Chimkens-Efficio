@@ -106,12 +106,12 @@ class TrashWidget(QWidget):
         )
 
         header = self.task_tree.header()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
-        self.task_tree.setColumnWidth(2, 120)
-        self.task_tree.setColumnWidth(3, 90)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)  # #
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)  # Title
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)  # Due Date
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)  # Priority
+        self.task_tree.setColumnWidth(2, 200)  # Wide enough for "Apr 30, 26 - 12:00 AM"
+        self.task_tree.setColumnWidth(3, 100)
 
         self.task_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.task_tree.customContextMenuRequested.connect(self.show_context_menu)
@@ -127,11 +127,26 @@ class TrashWidget(QWidget):
         tasks = self.task_manager.get_deleted_tasks(query)
 
         for index, task in enumerate(tasks, start=1):
+            display_str = "--"
+            if task.due_date:
+                from PySide6.QtCore import QDate, QDateTime
+
+                due_str = str(task.due_date).strip()
+                parsed_dt = QDateTime.fromString(due_str, Qt.DateFormat.ISODate)
+                if parsed_dt.isValid():
+                    display_str = parsed_dt.toString("MMM d, yy - h:mm AP")
+                else:
+                    parsed_d = QDate.fromString(due_str, Qt.DateFormat.ISODate)
+                    if parsed_d.isValid():
+                        display_str = parsed_d.toString("MMM d, yy")
+                    else:
+                        display_str = due_str
+
             row_item = QTreeWidgetItem(
                 [
                     str(index),  # Column 0: The Row Number
                     task.title,  # Column 1: The Raw Title
-                    task.due_date if task.due_date else "--",  # Column 2: Date
+                    display_str,  # Column 2: Date & Time
                     task.priority,  # Column 3: Priority
                 ]
             )
@@ -152,8 +167,12 @@ class TrashWidget(QWidget):
                 row_item.setBackground(col, pastel)
 
             row_item.setForeground(1, QColor(fg_hex))
+            row_item.setForeground(2, QColor(fg_hex))
             row_item.setTextAlignment(
                 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+            )
+            row_item.setTextAlignment(
+                2, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
             )
 
             # Priority Badge Setup (similar to Kanban)
@@ -166,9 +185,9 @@ class TrashWidget(QWidget):
 
             badge_container = QWidget()
             badge_layout = QHBoxLayout(badge_container)
-            badge_layout.setContentsMargins(30, 0, 5, 0)
-            badge_layout.addStretch()
+            badge_layout.setContentsMargins(5, 0, 0, 0)
             badge_layout.addWidget(badge)
+            badge_layout.addStretch()
 
             # Title Setup
             title_container = QWidget()

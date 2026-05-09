@@ -1,4 +1,13 @@
-from PySide6.QtCore import QDate, QEasingCurve, QPoint, QPropertyAnimation, Qt, QTimer
+from PySide6.QtCore import (
+    QDate,
+    QDateTime,
+    QEasingCurve,
+    QPoint,
+    QPropertyAnimation,
+    Qt,
+    QTime,
+    QTimer,
+)
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QComboBox,
@@ -82,23 +91,57 @@ class TaskEditorDialog(QDialog):
         grid = QGridLayout()
         grid.setSpacing(15)
 
-        # Row 0, Col 0: Due Date
-        grid.addWidget(QLabel("Due Date"), 0, 0)
+        # Row 0, Col 0: Due Date & Time
+        grid.addWidget(QLabel("Due Date & Time"), 0, 0)
+
+        datetime_layout = QHBoxLayout()
+        datetime_layout.setSpacing(5)
+
         self.date_input = QDateEdit()
         self.date_input.setCalendarPopup(True)
+
+        self.time_input = QComboBox()
+        # Generate 30-minute intervals
+        times = []
+        for h in range(24):
+            for m in (0, 30):
+                qtime = QTime(h, m)
+                times.append(qtime.toString("hh:mm AP"))
+        self.time_input.addItems(times)
+
         if task and task.due_date:
             due_str = str(task.due_date).strip()
             if due_str:
-                parsed = QDate.fromString(due_str, Qt.DateFormat.ISODate)
-                if parsed.isValid():
-                    self.date_input.setDate(parsed)
+                parsed_dt = QDateTime.fromString(due_str, Qt.DateFormat.ISODate)
+                if parsed_dt.isValid():
+                    self.date_input.setDate(parsed_dt.date())
+                    # Snap to nearest 30 mins or just match exact if exists
+                    time_str = parsed_dt.time().toString("hh:mm AP")
+                    idx = self.time_input.findText(time_str)
+                    if idx >= 0:
+                        self.time_input.setCurrentIndex(idx)
+                    else:
+                        # If weird time, just append it
+                        self.time_input.addItem(time_str)
+                        self.time_input.setCurrentIndex(self.time_input.count() - 1)
                 else:
-                    self.date_input.setDate(QDate.currentDate())
+                    parsed_d = QDate.fromString(due_str, Qt.DateFormat.ISODate)
+                    if parsed_d.isValid():
+                        self.date_input.setDate(parsed_d)
+                        self.time_input.setCurrentText("11:30 PM")
+                    else:
+                        self.date_input.setDate(QDate.currentDate())
+                        self.time_input.setCurrentText("11:30 PM")
             else:
                 self.date_input.setDate(QDate.currentDate())
+                self.time_input.setCurrentText("11:30 PM")
         else:
             self.date_input.setDate(QDate.currentDate())
-        grid.addWidget(self.date_input, 1, 0)
+            self.time_input.setCurrentText("11:30 PM")
+
+        datetime_layout.addWidget(self.date_input, stretch=2)
+        datetime_layout.addWidget(self.time_input, stretch=1)
+        grid.addLayout(datetime_layout, 1, 0)
 
         # Row 0, Col 1: Priority
         grid.addWidget(QLabel("Priority"), 0, 1)
@@ -180,6 +223,14 @@ class TaskEditorDialog(QDialog):
 
         layout.addLayout(btn_layout)
 
+    def _get_selected_datetime(self):
+        """Helper to combine the DateEdit and TimeComboBox into a single QDateTime"""
+        d = self.date_input.date()
+        t = QTime.fromString(self.time_input.currentText(), "hh:mm AP")
+        if not t.isValid():
+            t = QTime(23, 59, 59)
+        return QDateTime(d, t)
+
     def validate_and_accept(self):
         title = self.title_input.text().strip()
 
@@ -187,25 +238,30 @@ class TaskEditorDialog(QDialog):
             self.toast.show_toast("Title is required!")
             return
 
-        # --- PAST DUE DATE VALIDATION ---
-        selected_date = self.date_input.date()
-        current_date = QDate.currentDate()
+        # --- PAST DUE DATETIME VALIDATION ---
+        selected_dt = self._get_selected_datetime()
+        current_dt = QDateTime.currentDateTime()
 
-        # Check if the currently selected date is in the past
-        if selected_date < current_date:
-            original_date = None
+        # Check if the currently selected datetime is in the past
+        if selected_dt < current_dt:
+            original_dt = None
 
-            # Identify if we are editing an existing task, and if so, capture its original date
+            # Identify if we are editing an existing task, and if so, capture its original datetime
             if self.task and self.task.due_date:
                 due_str = str(self.task.due_date).strip()
                 if due_str:
-                    parsed = QDate.fromString(due_str, Qt.DateFormat.ISODate)
-                    if parsed.isValid():
-                        original_date = parsed
+                    parsed_dt = QDateTime.fromString(due_str, Qt.DateFormat.ISODate)
+                    if parsed_dt.isValid():
+                        original_dt = parsed_dt
+                    else:
+                        # Legacy fallback parsing for comparison
+                        parsed_d = QDate.fromString(due_str, Qt.DateFormat.ISODate)
+                        if parsed_d.isValid():
+                            original_dt = QDateTime(parsed_d, QTime(23, 59, 59))
 
-            # If it's a NEW task, OR they changed the date to a NEW past date, block the save
-            if not original_date or selected_date != original_date:
-                self.toast.show_toast("Due Date cannot be in the past!")
+            # If it's a NEW task, OR they changed the datetime to a NEW past datetime, block the save
+            if not original_dt or selected_dt != original_dt:
+                self.toast.show_toast("Due Date/Time cannot be in the past!")
                 return
         # --------------------------------
 
@@ -216,7 +272,7 @@ class TaskEditorDialog(QDialog):
         return {
             "title": self.title_input.text().strip(),
             "description": self.desc_input.toPlainText().strip(),
-            "due_date": self.date_input.date().toString(Qt.DateFormat.ISODate),
+            "due_date": self._get_selected_datetime().toString(Qt.DateFormat.ISODate),
             "priority": self.priority_input.currentText(),
             "status": self.status_input.currentText(),
             "color": self.color_combo.currentData(),  # Extract the hidden Hex Code
