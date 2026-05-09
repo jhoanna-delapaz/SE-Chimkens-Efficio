@@ -57,6 +57,37 @@ _DIALOG_STYLE = """
     }
 """
 
+_DIALOG_STYLE = """
+    QDialog {
+        background-color: #1E2328;
+    }
+    QLabel {
+        color: #FFFFFF;
+        font-weight: bold;
+        font-size: 13px;
+    }
+    QLineEdit, QTextEdit, QDateEdit, QComboBox {
+        background-color: rgba(255, 255, 255, 0.05);
+        color: white;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 6px;
+        padding: 8px 12px;
+        font-size: 14px;
+    }
+    QLineEdit:focus, QTextEdit:focus, QDateEdit:focus, QComboBox:focus {
+        border: 1px solid #6579BE;
+        background-color: rgba(255, 255, 255, 0.08);
+    }
+    QLineEdit:hover, QTextEdit:hover, QDateEdit:hover, QComboBox:hover {
+        background-color: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+    /* Disable calendar popup weird styling */
+    QCalendarWidget QWidget {
+        alternate-background-color: #2F3239;
+    }
+"""
+
 
 class TaskEditorDialog(QDialog):
     def __init__(self, parent=None, task=None):
