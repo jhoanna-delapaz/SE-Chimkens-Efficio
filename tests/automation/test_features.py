@@ -964,8 +964,9 @@ def test_tc026_tag_crud_management(app_window, qtbot, monkeypatch):
     # Ensure selection is processed
     tags_widget.tags_list.item(0).setSelected(True)
     qtbot.wait_until(
-        lambda: tags_widget.delete_btn.isVisible()
-        and tags_widget.delete_btn.isEnabled()
+        lambda: (
+            tags_widget.delete_btn.isVisible() and tags_widget.delete_btn.isEnabled()
+        )
     )
 
     # Click the button
