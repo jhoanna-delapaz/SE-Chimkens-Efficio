@@ -3,83 +3,507 @@ Business logic for tasks. Delegates all DB access to DataHandler.
 Keeps core logic DB-agnostic for easier testing and future upgrades.
 """
 
+import logging
 import sqlite3
-from data.models import Task
-from data.DataBaseHandler import DataHandler
+import json
+
+import os
+import shutil
+import uuid
+from typing import List, Optional, Dict
+from data.database_handler import DataHandler
+from data.models import Task, Tag, ActivityLog
+from datetime import datetime
+
+# ISO 25010 Security: Centralized logging prevents internal exception details from leaking
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+# Avoid duplicating handlers if module is reloaded
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    handler.setFormatter(
+        logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    )
+    logger.addHandler(handler)
 
 
 class TaskManager:
     def __init__(self, db_file: str):
         self.db_file = db_file
         self._data_handler = DataHandler(db_file)
+        # Setup attachments directory relative to DB file
+        db_dir = os.path.dirname(os.path.abspath(db_file))
+        self.attachments_dir = os.path.join(db_dir, ".efficio_attachments")
+        if not os.path.exists(self.attachments_dir):
+            os.makedirs(self.attachments_dir)
+
+    def _validate_task(self, task: Task) -> bool:
+        """Validates task integrity to prevent malicious or malformed injections."""
+        if not task.title or not task.title.strip():
+            logger.warning(
+                "Security/Validation Alert: Blocked attempt to save task with empty title."
+            )
+            return False
+        if len(task.title) > 255:
+            logger.warning(
+                "Security/Validation Alert: Task title exceeds maximum allowed length."
+            )
+            return False
+
+        # Basic anti-XSS heuristic
+        malicious_patterns = ["<script>", "javascript:", "onload="]
+        title_lower = task.title.lower()
+        desc_lower = (task.description or "").lower()
+        if any(p in title_lower or p in desc_lower for p in malicious_patterns):
+            logger.warning(
+                "Security/Validation Alert: Blocked potential script injection attempt."
+            )
+            return False
+
+        return True
+
+    def log_action(
+        self,
+        task_id: Optional[int],
+        task_title: str,
+        action: str,
+        details: str = "",
+        snapshot: str = "",
+    ):
+        """Helper to record an activity log entry with optional JSON state snapshot."""
+        try:
+            log = ActivityLog(
+                id=None,
+                task_id=task_id,
+                task_title=task_title,
+                action=action,
+                details=details,
+                timestamp=datetime.now(),
+                snapshot=snapshot or "",
+            )
+            self._data_handler.add_activity_log(log)
+        except Exception as e:
+            logger.error(f"Failed to log activity: {e}")
 
     def close(self) -> None:
         """Close DB connection. Call on shutdown to avoid file locks."""
         self._data_handler.close()
 
-    def add_task(self, task: Task) -> int:
-        """Saves a new task to the database safely."""
+    def run_auto_cleanup(self) -> None:
+        """
+        FT05: 3-Stage Lifecycle Cleanup.
+        1. Completed tasks (>3 days old) -> Archive.
+        2. Archived tasks (>14 days old) -> Trash (soft delete).
+        3. Trash tasks (>14 days old) -> Permanently deleted.
+
+        ISO 25010: Centralizing business rules (timeframes) in the business layer.
+        """
+        from datetime import datetime, timedelta
+        from data.database_handler import _serialize_for_sqlite
+
+        now = datetime.now()
         try:
-            return self._data_handler.add_task(task)
-        except sqlite3.Error as e:
-            print(f"Database Error on Add: {e}")
+            counts = self._data_handler.run_auto_cleanup(
+                archive_cutoff=_serialize_for_sqlite(now - timedelta(days=3)),
+                trash_cutoff=_serialize_for_sqlite(now - timedelta(days=14)),
+                perm_delete_cutoff=_serialize_for_sqlite(now - timedelta(days=14)),
+                log_threshold=_serialize_for_sqlite(now - timedelta(days=30)),
+                now_serialized=_serialize_for_sqlite(now),
+            )
+            if any(v > 0 for v in counts.values()):
+                logger.info(
+                    f"Auto-cleanup: archived={counts['archived']}, "
+                    f"sent_to_trash={counts['sent_to_trash']}, "
+                    f"permanently_deleted={counts['permanently_deleted']}"
+                )
+        except Exception as e:
+            logger.error(f"Auto-cleanup failed: {e}")
+
+    def archive_task(self, task_id: int) -> None:
+        """Moves a task to the Archive."""
+        try:
+            task = self.get_task_by_id(task_id)
+            self._data_handler.archive_task(task_id)
+            if task:
+                self.log_action(task_id, task.title, "Archived")
+        except Exception as e:
+            logger.error(f"Archive Error for Task {task_id}: {e}")
+
+    def restore_from_archive(self, task_id: int) -> None:
+        """Restores a task from the Archive to the main dashboard."""
+        try:
+            self._data_handler.restore_from_archive(task_id)
+            task = self.get_task_by_id(task_id)
+            if task:
+                self.log_action(task_id, task.title, "Unarchived")
+        except Exception as e:
+            logger.error(f"Restore-from-Archive Error for Task {task_id}: {e}")
+
+    def get_archived_tasks(self, search_query: str = "") -> List[Task]:
+        """Fetches all archived tasks."""
+        try:
+            return self._data_handler.get_archived_tasks(search_query)
+        except Exception as e:
+            logger.error(f"Get Archived Tasks Error: {e}")
+            return []
+
+    def get_all_tags(self) -> List[Tag]:
+        """Fetches all tags securely."""
+        try:
+            return self._data_handler.get_all_tags()
+        except sqlite3.Error:
+            logger.error("Database Query Error on Get All Tags")
+            return []
+
+    def add_tag(self, tag: Tag) -> int:
+        """Saves a new tag to the database securely."""
+        try:
+            return self._data_handler.add_tag(tag)
+        except sqlite3.Error:
+            logger.error("Database Integrity Error on Add Tag")
             return -1
 
-    def get_all_tasks(self, search_query: str = "") -> list:
+    def update_tag(self, tag: Tag) -> None:
+        """Updates a tag securely."""
+        try:
+            self._data_handler.update_tag(tag)
+        except sqlite3.Error:
+            logger.error(f"Database Integrity Error on Update for Tag {tag.id}")
+
+    def delete_tag(self, tag_id: int) -> None:
+        """Deletes a tag securely."""
+        try:
+            self._data_handler.delete_tag(tag_id)
+        except sqlite3.Error:
+            logger.error(f"Database Integrity Error on Delete for Tag {tag_id}")
+
+    def add_task(self, task: Task) -> int:
+        """Saves a new task to the database safely after validation."""
+        if not self._validate_task(task):
+            return -1
+        try:
+            task_id = self._data_handler.add_task(task)
+            if task_id != -1:
+                self.log_action(task_id, task.title, "Created")
+            return task_id
+        except sqlite3.Error:
+            logger.error(
+                "Database Integrity Error on Add (details masked for security)"
+            )
+            return -1
+
+    def get_all_tasks(self, search_query: str = "") -> List[Task]:
         """Fetches all active tasks, optionally applying a keyword search."""
         try:
             return self._data_handler.get_all_tasks(search_query)
-        except sqlite3.Error as e:
-            print(f"Database Error: {e}")
+        except sqlite3.Error:
+            logger.error(
+                "Database Query Error on Get All (details masked for security)"
+            )
             return []
 
-    def get_task_by_id(self, task_id: int):
+    def get_task_by_id(self, task_id: int) -> Optional[Task]:
         """Fetches a specific task by ID securely."""
         try:
             return self._data_handler.get_task_by_id(task_id)
-        except sqlite3.Error as e:
-            print(f"Database Error on Get ID: {e}")
+        except sqlite3.Error:
+            logger.error(
+                f"Database Query Error on Get ID for Task {task_id} (details masked)"
+            )
             return None
 
     def delete_task(self, task_id: int) -> None:
         """Deletes a task safely."""
         try:
+            task = self.get_task_by_id(task_id)
             self._data_handler.delete_task(task_id)
-        except sqlite3.Error as e:
-            print(f"Database Error on Delete: {e}")
+            if task:
+                self.log_action(task_id, task.title, "Moved to Trash")
+        except sqlite3.Error:
+            logger.error(f"Database Integrity Error on Delete for Task {task_id}")
 
     def update_task_status(self, task_id: int, status: str) -> None:
         """Updates just the string status of a specific task."""
         try:
+            old_task = self.get_task_by_id(task_id)
             self._data_handler.update_task_status(task_id, status)
-        except sqlite3.Error as e:
-            print(f"Database Error on Update Status: {e}")
+            if old_task:
+                details = f"Status changed from '{old_task.status}' to '{status}'"
+                # Store revert snapshot
+                snapshot = json.dumps(
+                    {"action": "status_change", "old_status": old_task.status}
+                )
+                self.log_action(
+                    task_id, old_task.title, "Status Changed", details, snapshot
+                )
+        except sqlite3.Error:
+            logger.error(
+                f"Database Integrity Error on Update Status for Task {task_id}"
+            )
 
     def update_task(self, task: Task) -> None:
-        """Updates an entire task object securely."""
-        try:
-            self._data_handler.update_task(task)
-        except sqlite3.Error as e:
-            print(f"Database Error on Update: {e}")
+        """Updates an entire task object securely after validation.
 
-    def get_deleted_tasks(self, search_query: str = "") -> list:
+        Performs field-level diffing to generate a human-readable changelog,
+        and stores a JSON snapshot of the old state for potential Revert support.
+        """
+        if not self._validate_task(task):
+            return
+        try:
+            old_task = self.get_task_by_id(task.id)
+            self._data_handler.update_task(task)
+
+            if old_task:
+                # --- Phase 1: Field-Level Diffing ---
+                diffs = []
+                if old_task.title != task.title:
+                    diffs.append(f"Title: '{old_task.title}' -> '{task.title}'")
+                if old_task.description != task.description:
+                    diffs.append("Description updated")
+                if old_task.priority != task.priority:
+                    diffs.append(f"Priority: {old_task.priority} -> {task.priority}")
+                if str(old_task.due_date) != str(task.due_date):
+                    diffs.append("Due Date changed")
+                if old_task.status != task.status:
+                    diffs.append(f"Status: {old_task.status} -> {task.status}")
+                if old_task.color != task.color:
+                    diffs.append("Color updated")
+
+                details = "; ".join(diffs) if diffs else "No significant changes"
+
+                # --- Phase 3: Store snapshot for Revert ---
+                snapshot = json.dumps(
+                    {
+                        "action": "edit",
+                        "old_title": old_task.title,
+                        "old_description": old_task.description or "",
+                        "old_status": old_task.status,
+                        "old_priority": old_task.priority,
+                        "old_due_date": str(old_task.due_date)
+                        if old_task.due_date
+                        else "",
+                        "old_color": old_task.color,
+                    }
+                )
+                self.log_action(task.id, task.title, "Edited", details, snapshot)
+            else:
+                self.log_action(task.id, task.title, "Edited")
+        except sqlite3.Error:
+            logger.error(f"Database Integrity Error on Update for Task {task.id}")
+
+    def get_deleted_tasks(self, search_query: str = "") -> List[Task]:
         """Fetches all tasks from the Trash securely, optionally applying a keyword search."""
         try:
             return self._data_handler.get_deleted_tasks(search_query)
-        except sqlite3.Error as e:
-            print(f"Database Error on Get Deleted: {e}")
+        except sqlite3.Error:
+            logger.error(
+                "Database Query Error on Get Deleted (details masked for security)"
+            )
             return []
 
     def restore_task(self, task_id: int) -> None:
         """Restores a task from the Trash securely."""
         try:
             self._data_handler.restore_task(task_id)
-        except sqlite3.Error as e:
-            print(f"Database Error on Restore: {e}")
+            task = self.get_task_by_id(task_id)
+            if task:
+                self.log_action(task_id, task.title, "Restored")
+        except sqlite3.Error:
+            logger.error(f"Database Integrity Error on Restore for Task {task_id}")
 
     def permanently_delete_task(self, task_id: int) -> None:
-        """Permanently obliterates a task from storage."""
+        """Permanently obliterates a task and its attachments from storage."""
         try:
+            task = self.get_task_by_id(task_id)
+            if task and task.attachments:
+                for att in task.attachments:
+                    try:
+                        if os.path.exists(att.file_path):
+                            os.remove(att.file_path)
+                    except Exception as e:
+                        logger.error(f"Failed to delete attachment file: {e}")
+
+            if task:
+                self.log_action(task_id, task.title, "Permanently Deleted")
             self._data_handler.permanently_delete_task(task_id)
-        except sqlite3.Error as e:
-            print(f"Database Error on Permanent Delete: {e}")
+        except sqlite3.Error:
+            logger.error(
+                f"Database Integrity Error on Permanent Delete for Task {task_id}"
+            )
+
+    def save_attachment(self, source_path: str) -> Optional[tuple]:
+        """
+        Copies a file to the internal attachments directory.
+        Returns (new_path, original_name) or None on failure.
+        """
+        try:
+            if not os.path.exists(source_path) or not os.path.isfile(source_path):
+                return None
+
+            # ISO 25010 Performance: Limit file size to 10MB to prevent storage bloat
+            MAX_SIZE = 10 * 1024 * 1024  # 10 MB
+            if os.path.getsize(source_path) > MAX_SIZE:
+                logger.warning(f"Attachment Blocked: {source_path} exceeds 10MB limit.")
+                return None
+
+            file_name = os.path.basename(source_path)
+            # Generate unique name to avoid collisions
+            ext = os.path.splitext(file_name)[1]
+            unique_name = f"{uuid.uuid4()}{ext}"
+            dest_path = os.path.join(self.attachments_dir, unique_name)
+
+            shutil.copy2(source_path, dest_path)
+            return dest_path, file_name
+        except Exception as e:
+            logger.error(f"Attachment Save Error: {e}")
+            return None
+
+    def get_task_stats(self, tasks_list: List[Task] = None) -> Dict:
+        """Aggregates task counts for the analytics dashboard.
+
+        If a list of tasks is provided, computes stats for that exact list
+        (respecting UI filters). Otherwise, queries all active tasks.
+
+        Returns:
+            dict: A flat mapping of metric names to integer counts, e.g.::
+
+                {
+                    "Pending": 3,
+                    "In Progress": 1,
+                    "Completed": 5,
+                    "Low": 2,
+                    "Medium": 3,
+                    "High": 3,
+                    "Critical": 1,
+                    "overdue": 2,
+                    "total": 9,
+                }
+        """
+        if tasks_list is None:
+            try:
+                tasks = self._data_handler.get_all_tasks()
+            except sqlite3.Error:
+                logger.error(
+                    "Database Query Error on Get Stats (details masked for security)"
+                )
+                return {
+                    "Pending": 0,
+                    "In Progress": 0,
+                    "Completed": 0,
+                    "Low": 0,
+                    "Medium": 0,
+                    "High": 0,
+                    "Critical": 0,
+                    "overdue": 0,
+                    "total": 0,
+                }
+        else:
+            tasks = tasks_list
+
+        from datetime import datetime
+
+        stats: dict = {
+            "Pending": 0,
+            "In Progress": 0,
+            "Completed": 0,
+            "Low": 0,
+            "Medium": 0,
+            "High": 0,
+            "Critical": 0,
+            "overdue": 0,
+            "total": len(tasks),
+        }
+
+        now = datetime.now()
+
+        for task in tasks:
+            # Status aggregation
+            if task.status in stats:
+                stats[task.status] += 1
+
+            # Priority aggregation
+            if task.priority in stats:
+                stats[task.priority] += 1
+
+            # Overdue detection: non-completed tasks with a past due datetime
+            if task.status != "Completed" and task.due_date:
+                due_str = str(task.due_date).strip()
+                try:
+                    due = datetime.fromisoformat(due_str)
+                    if due < now:
+                        stats["overdue"] += 1
+                except ValueError:
+                    try:
+                        # Legacy task with no time, just date
+                        # We assume end of day for deadline
+                        legacy_date = datetime.strptime(due_str, "%Y-%m-%d")
+                        legacy_due = legacy_date.replace(hour=23, minute=59, second=59)
+                        if legacy_due < now:
+                            stats["overdue"] += 1
+                    except ValueError:
+                        pass  # Malformed string - silently skip
+
+        return stats
+
+    def get_activity_logs(self, limit: int = 100) -> List[ActivityLog]:
+        """Fetches the history of actions from the database."""
+        try:
+            return self._data_handler.get_activity_logs(limit)
+        except sqlite3.Error:
+            logger.error("Database Query Error on Get Activity Logs")
+            return []
+
+    def get_activity_counts(self) -> dict:
+        """Returns { 'YYYY-MM-DD': count } for the heatmap."""
+        try:
+            return self._data_handler.get_activity_counts()
+        except sqlite3.Error:
+            logger.error("Database Query Error on Get Activity Counts")
+            return {}
+
+    def revert_from_log(self, log: ActivityLog) -> bool:
+        """
+        Phase 3: Revert a task to its previous state using the log's JSON snapshot.
+        Returns True on success, False on failure.
+        """
+        if not log.snapshot:
+            return False
+        try:
+            data = json.loads(log.snapshot)
+            action = data.get("action", "")
+
+            if action == "status_change":
+                old_status = data.get("old_status")
+                if old_status and log.task_id:
+                    self._data_handler.update_task_status(log.task_id, old_status)
+                    self.log_action(
+                        log.task_id,
+                        log.task_title,
+                        "Reverted",
+                        f"Status reverted to '{old_status}'",
+                    )
+                    return True
+
+            elif action == "edit":
+                task = self.get_task_by_id(log.task_id)
+                if task:
+                    task.title = data.get("old_title", task.title)
+                    task.description = data.get("old_description", task.description)
+                    task.status = data.get("old_status", task.status)
+                    task.priority = data.get("old_priority", task.priority)
+                    task.color = data.get("old_color", task.color)
+                    # Restore due_date string if present
+                    old_due = data.get("old_due_date", "")
+                    task.due_date = old_due if old_due else None
+                    self._data_handler.update_task(task)
+                    self.log_action(
+                        task.id,
+                        task.title,
+                        "Reverted",
+                        "Task restored to previous state",
+                    )
+                    return True
+
+        except Exception as e:
+            logger.error(f"Revert failed: {e}")
+        return False

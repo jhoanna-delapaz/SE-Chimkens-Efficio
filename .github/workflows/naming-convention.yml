@@ -17,12 +17,12 @@ jobs:
           script: |
             // Regex enforces: type: [Hierarchical-ID] description
             const pattern = /^(ftr|htfx|epc|tsk|dcmnt|upd|chore|refactor):\s\[([A-Z0-9-]+|No-ID)\]\s.+/i;
-
+            
             const commits = context.payload.commits || [];
 
             for (const commit of commits) {
               const message = commit.message.split('\n')[0]; // Only check the subject line
-
+              
               // Whitelist Git ecosystem-generated commits from the strict checks
               if (message.startsWith("Merge ") || message.startsWith("Revert ") || message.startsWith("Squashed ") || message.startsWith("Squash ")) {
                 continue;
@@ -37,7 +37,7 @@ jobs:
 
             Allowed types:
             ftr, htfx, epc, tsk, dcmnt, upd, chore, refactor
-
+            
             Valid Examples:
             ftr: [FT01] built search bar [#26]
             chore: [No-ID] clean up files
@@ -65,7 +65,7 @@ jobs:
 
             Allowed types:
             ftr, htfx, epc, tsk, dcmnt, upd, chore, refactor
-
+            
             Valid Examples:
             ftr: [FT01] built search bar (#26)
             chore: [No-ID] clean up files

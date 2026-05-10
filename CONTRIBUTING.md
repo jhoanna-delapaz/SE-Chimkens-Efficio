@@ -58,7 +58,7 @@ We follow a strict hierarchy to ensure that the "Production" version of our proj
 * **ISO 25010 Goal:** **Reliability.** If the professor clones this branch, it *must* work perfectly.
 
 #### **2. The `develop` Branch (The Melting Pot)**
-* **Permissions:** **Protected.** No direct commits and Merges only via Pull Requests for code files. Automation and Documentation Files are applied here.
+* **Permissions:** **Protected.** No direct commits and Merges only via Pull Requests for code files. Automation and Documentation Files are applied here. 
 * **What goes in:** Code that has passed all unit tests and has been "Approved" by a teammate. Documentation files are also allowed here.
 * **Condition:** The code doesn't have to be "polished," but it must not break the project for other teammates.
 * **ISO 25010 Goal:** **Functional Suitability.** Does this version have all the features we promised for the Sprint?
@@ -162,3 +162,6 @@ Should be documented like this for **regression cycles**:
 | **Save work** | `git add .` -> `git commit -m "tsk: [US01-TK01] added cleaning logic [#12]"` |
 | **Push code** | `git push origin feature/US01-TK01-name` |
 | **Sync with team** | `git checkout develop` -> `git pull` -> `git checkout feature/US01-TK01-name` -> `git merge develop` |
+
+
+

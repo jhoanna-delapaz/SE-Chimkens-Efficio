@@ -28,7 +28,7 @@ a = Analysis(
     # The database file is intentionally excluded — it will be created fresh
     # in the user's AppData folder on first run via config.py.
     datas=[
-        ('ref/Efficio_UI/images/pastel-bg.jpg', 'ref/Efficio_UI/images'),
+        ('src/assets/*', 'assets'),
     ],
 
     # Modules that PyInstaller's static analyser cannot auto-discover
@@ -36,7 +36,7 @@ a = Analysis(
     hiddenimports=[
         'config',
         'data',
-        'data.DataBaseHandler',
+        'data.database_handler',
         'data.models',
         'business',
         'business.task_manager',

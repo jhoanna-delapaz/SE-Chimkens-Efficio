@@ -5,7 +5,7 @@ from datetime import datetime
 
 import pytest
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtWidgets import QApplication, QMessageBox
+from PySide6.QtWidgets import QApplication, QMessageBox, QPushButton, QLabel
 
 # Path resolution MUST execute before src imports
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -13,9 +13,10 @@ src_dir = os.path.join(current_dir, "..", "..", "src")
 sys.path.append(src_dir)
 
 # Tell Ruff to ignore sorting (I001) and ignore import position (E402) for these 3 files!
-from data.DataBaseHandler import init_db  # noqa: I001, E402
-from data.models import Task  # noqa: I001, E402
+from data.database_handler import init_db  # noqa: I001, E402
+from data.models import Task, Tag, TaskAttachment  # noqa: I001, E402
 from main import MainWindow  # noqa: I001, E402
+from business.task_manager import TaskManager  # noqa: I001, E402
 
 
 @pytest.fixture
@@ -26,7 +27,6 @@ def app_window(qtbot):
     init_db(TEST_DB_PATH)
 
     window = MainWindow(TEST_DB_PATH)
-    from business.task_manager import TaskManager
 
     window.dashboard.task_manager = TaskManager(TEST_DB_PATH)
     window.dashboard.load_tasks()
@@ -72,17 +72,20 @@ def test_tc001_add_task_success(app_window, qtbot, monkeypatch):
     qtbot.mouseClick(dashboard.add_btn, Qt.LeftButton)
 
     # Validate the task physically rendered inside the To-Do Accordion
-    todo_group = dashboard.task_tree.topLevelItem(0)
+    todo_group = dashboard.task_list_view.task_tree.topLevelItem(0)
     assert todo_group.childCount() == 2  # 1 header row + 1 physical task row
 
     task_row = todo_group.child(1)
-    assert "Submit Project" in task_row.text(0)
+    # Verify title via the custom widget overlay (QLabel)
+    widget = dashboard.task_list_view.task_tree.itemWidget(task_row, 0)
+    title_label = widget.findChild(QLabel)
+    assert "Submit Project" in title_label.text()
 
 
 def test_tc002_add_task_empty_title_validation(app_window, qtbot):
     """TC-002: Verify validation message for empty title blocks creation"""
     dashboard = app_window.dashboard
-    todo_group = dashboard.task_tree.topLevelItem(0)
+    todo_group = dashboard.task_list_view.task_tree.topLevelItem(0)
     initial_count = todo_group.childCount()
 
     # Track if our Custom Toast Overlay successfully spawns
@@ -115,13 +118,13 @@ def test_tc002_add_task_empty_title_validation(app_window, qtbot):
 def test_tc003_view_dashboard(app_window, qtbot):
     """TC-003: Verify native QTreeWidget initializes Accordion Groups empty"""
     dashboard = app_window.dashboard
-    assert dashboard.task_tree is not None
+    assert dashboard.task_list_view.task_tree is not None
 
     # Mathematical validation: Top level items are the 3 groups + 2 spacers = 5
-    assert dashboard.task_tree.topLevelItemCount() == 5
+    assert dashboard.task_list_view.task_tree.topLevelItemCount() == 5
 
     # Extract "To-Do" accordion. It should ONLY have 1 child (the Inline Header row).
-    todo_group = dashboard.task_tree.topLevelItem(0)
+    todo_group = dashboard.task_list_view.task_tree.topLevelItem(0)
     assert todo_group.childCount() == 1  # 0 user tasks
 
 
@@ -155,9 +158,9 @@ def test_tc004_tc005_kanban_matrix_routing(app_window, qtbot):
     dashboard.load_tasks()  # Trigger layout route matrix
 
     # Kanban Board should physically possess the cards in the proper layouts!
-    assert dashboard.todo_layout.count() == 1
-    assert dashboard.done_layout.count() == 1
-    assert dashboard.inprogress_layout.count() == 0
+    assert dashboard.kanban_board_view.todo_content.count() == 1
+    assert dashboard.kanban_board_view.done_content.count() == 1
+    assert dashboard.kanban_board_view.progress_content.count() == 0
 
 
 def test_tc006_tc007_trash_management(app_window, qtbot, monkeypatch):
@@ -183,36 +186,35 @@ def test_tc006_tc007_trash_management(app_window, qtbot, monkeypatch):
     dashboard.load_tasks()
 
     # Verify Task is strictly missing from Active To-Do List
-    todo_group = dashboard.task_tree.topLevelItem(0)
+    todo_group = dashboard.task_list_view.task_tree.topLevelItem(0)
     assert todo_group.childCount() == 1  # Just the header left
 
     # Navigate to Trash Bin View
     dashboard.set_mode("trash")
     assert dashboard.current_mode == "trash"
 
-    # Verify it exists in the Trash UI
-    trash_todo_group = dashboard.task_tree.topLevelItem(0)
-    assert trash_todo_group.childCount() == 2
-    assert "Trash Test Task" in trash_todo_group.child(1).text(0)
+    # Verify it exists in the Trash UI (flat list in TrashWidget)
+    assert dashboard.page_trash.task_tree.topLevelItemCount() == 1
+    trash_item = dashboard.page_trash.task_tree.topLevelItem(0)
+
+    # Title is injected via setItemWidget, so text(0) is empty. We can check via the underlying data
+    assert (
+        dashboard.task_manager.get_task_by_id(
+            trash_item.data(0, Qt.ItemDataRole.UserRole)
+        ).title
+        == "Trash Test Task"
+    )
 
     # Permanent Delete Workflow
     monkeypatch.setattr(
         QMessageBox, "warning", lambda *args: QMessageBox.StandardButton.Yes
     )
     dashboard.task_manager.permanently_delete_task(task_id)
-    dashboard.load_tasks()
-
-    # Permanent Delete Workflow
-    monkeypatch.setattr(
-        QMessageBox, "warning", lambda *args: QMessageBox.StandardButton.Yes
-    )
-    dashboard.task_manager.permanently_delete_task(task_id)
-    dashboard.load_tasks()  # <--- THIS VAPORIZES THE OLD POINTER!
+    dashboard.page_trash.refresh()  # <--- THIS VAPORIZES THE OLD POINTER!
 
     # Final Verification: Nulled from existence
     # We MUST re-fetch the pointer here!
-    trash_todo_group_cleared = dashboard.task_tree.topLevelItem(0)
-    assert trash_todo_group_cleared.childCount() == 1
+    assert dashboard.page_trash.task_tree.topLevelItemCount() == 0
 
     db_task = dashboard.task_manager.get_task_by_id(task_id)
     assert db_task is None
@@ -250,14 +252,14 @@ def test_tc008_search_isolation(app_window, qtbot):
     dashboard.search_bar.setText("Groceries")
 
     # The To-Do Accordion should only have the Header (1) + "Buy Groceries" (1) = 2 children
-    todo_group_filtered = dashboard.task_tree.topLevelItem(0)
+    todo_group_filtered = dashboard.task_list_view.task_tree.topLevelItem(0)
     assert todo_group_filtered.childCount() == 2
 
     # Clear Filter
     dashboard.search_bar.setText("")
 
     # Re-fetch again
-    todo_group_cleared = dashboard.task_tree.topLevelItem(0)
+    todo_group_cleared = dashboard.task_list_view.task_tree.topLevelItem(0)
     assert todo_group_cleared.childCount() == 3
 
 
@@ -281,7 +283,7 @@ def test_tc009_task_color_pastel_render(app_window, qtbot):
     dashboard.load_tasks()
 
     # Enter the To-Do Accordion and grab the physical Task Row (Index 1)
-    todo_group = dashboard.task_tree.topLevelItem(0)
+    todo_group = dashboard.task_list_view.task_tree.topLevelItem(0)
     task_row = todo_group.child(1)
 
     # Extract the custom Pastel Brush generated by our ACTIVE_THEME_MAP logic
@@ -303,11 +305,10 @@ def test_tc009_task_color_pastel_render(app_window, qtbot):
 
 def test_tc010_past_due_date_validation(app_window, qtbot):
     """TC-010: Task Due Date Validation (Past Date)"""
-    from PySide6.QtCore import QDate, QTimer
-    from PySide6.QtWidgets import QApplication
+    from PySide6.QtCore import QDate
 
     dashboard = app_window.dashboard
-    todo_group = dashboard.task_tree.topLevelItem(0)
+    todo_group = dashboard.task_list_view.task_tree.topLevelItem(0)
     initial_count = todo_group.childCount()
 
     toast_activated = False
@@ -326,7 +327,7 @@ def test_tc010_past_due_date_validation(app_window, qtbot):
 
             if (
                 top_widget.toast.isVisible()
-                and top_widget.toast.text() == "Due Date cannot be in the past!"
+                and top_widget.toast.text() == "Due Date/Time cannot be in the past!"
             ):
                 toast_activated = True
 
@@ -341,8 +342,6 @@ def test_tc010_past_due_date_validation(app_window, qtbot):
 
 def test_tc011_task_priority_selection(app_window, qtbot, monkeypatch):
     """TC-011: Task Priority Management correctly saves"""
-    from PySide6.QtCore import Qt, QTimer
-    from PySide6.QtWidgets import QApplication, QMessageBox
 
     # Auto-click OK on Success UI
     monkeypatch.setattr(
@@ -352,7 +351,6 @@ def test_tc011_task_priority_selection(app_window, qtbot, monkeypatch):
     )
 
     dashboard = app_window.dashboard
-    todo_group = dashboard.task_tree.topLevelItem(0)
 
     def interact_with_dialog():
         top_widget = QApplication.activeModalWidget()
@@ -369,7 +367,7 @@ def test_tc011_task_priority_selection(app_window, qtbot, monkeypatch):
     qtbot.mouseClick(dashboard.add_btn, Qt.LeftButton)
 
     # Validate the task physically rendered
-    todo_group = dashboard.task_tree.topLevelItem(
+    todo_group = dashboard.task_list_view.task_tree.topLevelItem(
         0
     )  # Re-fetch because load_tasks() destroys old tree
     assert todo_group.childCount() == 2
@@ -388,8 +386,7 @@ def test_tc011_task_priority_selection(app_window, qtbot, monkeypatch):
 
 def test_tc012_toast_visibility_engine(app_window, qtbot):
     """TC-012: Ensure physics engine uses the premium OutBack bounce."""
-    from PySide6.QtCore import QEasingCurve, Qt, QTimer
-    from PySide6.QtWidgets import QApplication
+    from PySide6.QtCore import QEasingCurve
 
     dashboard = app_window.dashboard
 
@@ -532,14 +529,19 @@ def test_tc015_urgent_filter_isolates_tasks(app_window, qtbot):
     # Apply the special urgency filter keyword
     dashboard.search_bar.setText("is:urgent")
 
-    todo_group = dashboard.task_tree.topLevelItem(0)
+    todo_group = dashboard.task_list_view.task_tree.topLevelItem(0)
     # Only 1 urgent task should appear (header + 1 task = 2 children)
     assert todo_group.childCount() == 2
-    assert "Overdue Report" in todo_group.child(1).text(0)
+
+    # Verify title via the custom widget overlay
+    task_row = todo_group.child(1)
+    widget = dashboard.task_list_view.task_tree.itemWidget(task_row, 0)
+    title_label = widget.findChild(QLabel)
+    assert "Overdue Report" in title_label.text()
 
     # Clear the filter and verify both tasks reappear
     dashboard.search_bar.setText("")
-    todo_group_cleared = dashboard.task_tree.topLevelItem(0)
+    todo_group_cleared = dashboard.task_list_view.task_tree.topLevelItem(0)
     assert todo_group_cleared.childCount() == 3  # header + 2 tasks
 
 
@@ -564,7 +566,7 @@ def test_tc016_urgent_task_date_is_red(app_window, qtbot):
     )
     dashboard.load_tasks()
 
-    todo_group = dashboard.task_tree.topLevelItem(0)
+    todo_group = dashboard.task_list_view.task_tree.topLevelItem(0)
     task_row = todo_group.child(1)  # child(0) is the inline header
 
     # Column 1 holds the due date text — foreground must be urgency red
@@ -601,3 +603,954 @@ def test_tc017_banner_hides_when_no_urgent_tasks(app_window, qtbot):
 
     # Banner must auto-hide
     assert not dashboard.urgent_banner_btn.isVisible()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# EP02: Task Productivity Analytics Dashboard
+# TC-018 → TC-023
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_tc018_analytics_widget_exists(app_window, qtbot):
+    """[EP02] TC-018: AnalyticsWidget instantiates cleanly and is wired into dashboard."""
+    from presentation.analytics_widget import AnalyticsWidget
+
+    dashboard = app_window.dashboard
+
+    # The widget must be attached to the dashboard and be a proper AnalyticsWidget
+    assert hasattr(dashboard, "analytics_widget")
+    assert isinstance(dashboard.analytics_widget, AnalyticsWidget)
+
+    # Confirm the inner scroll content area exists (structural integrity check)
+    assert hasattr(dashboard.analytics_widget, "_inner_layout")
+
+
+def test_tc019_analytics_empty_state(app_window, qtbot):
+    """[EP02] TC-019: With zero tasks the empty-state label is shown."""
+    dashboard = app_window.dashboard
+
+    # No tasks were added — ensure stats are all zero
+    stats = dashboard.task_manager.get_task_stats()
+    assert stats["total"] == 0
+    assert stats["Pending"] == 0
+    assert stats["Completed"] == 0
+    assert stats["overdue"] == 0
+
+    # Empty-state label must be present inside the donut container
+    donut_container = dashboard.analytics_widget._donut_container
+    labels = [
+        donut_container.layout().itemAt(i).widget()
+        for i in range(donut_container.layout().count())
+        if donut_container.layout().itemAt(i).widget() is not None
+    ]
+    empty_labels = [
+        w
+        for w in labels
+        if getattr(w, "objectName", lambda: "")() == "empty_state_label"
+    ]
+    assert len(empty_labels) == 1
+
+
+def test_tc020_analytics_counts_match_db(app_window, qtbot):
+    """[EP02] TC-020: Stats dict accurately reflects task records in the database."""
+    from datetime import datetime
+
+    dashboard = app_window.dashboard
+
+    dashboard.task_manager.add_task(
+        Task(
+            id=None,
+            title="P1",
+            description="",
+            status="Pending",
+            created_at=datetime.now(),
+            due_date="",
+            priority="Medium",
+            is_deleted=0,
+        )
+    )
+    dashboard.task_manager.add_task(
+        Task(
+            id=None,
+            title="P2",
+            description="",
+            status="Pending",
+            created_at=datetime.now(),
+            due_date="",
+            priority="High",
+            is_deleted=0,
+        )
+    )
+    dashboard.task_manager.add_task(
+        Task(
+            id=None,
+            title="C1",
+            description="",
+            status="Completed",
+            created_at=datetime.now(),
+            due_date="",
+            priority="Low",
+            is_deleted=0,
+        )
+    )
+
+    stats = dashboard.task_manager.get_task_stats()
+
+    assert stats["total"] == 3
+    assert stats["Pending"] == 2
+    assert stats["Completed"] == 1
+    assert stats["In Progress"] == 0
+
+
+def test_tc021_analytics_priority_distribution(app_window, qtbot):
+    """[EP02] TC-021: Priority aggregation in stats matches tasks added per level."""
+    from datetime import datetime
+
+    dashboard = app_window.dashboard
+
+    dashboard.task_manager.add_task(
+        Task(
+            id=None,
+            title="Low Task",
+            description="",
+            status="Pending",
+            created_at=datetime.now(),
+            due_date="",
+            priority="Low",
+            is_deleted=0,
+        )
+    )
+    dashboard.task_manager.add_task(
+        Task(
+            id=None,
+            title="Low Task 2",
+            description="",
+            status="Pending",
+            created_at=datetime.now(),
+            due_date="",
+            priority="Low",
+            is_deleted=0,
+        )
+    )
+    dashboard.task_manager.add_task(
+        Task(
+            id=None,
+            title="High Task",
+            description="",
+            status="Pending",
+            created_at=datetime.now(),
+            due_date="",
+            priority="High",
+            is_deleted=0,
+        )
+    )
+
+    stats = dashboard.task_manager.get_task_stats()
+
+    assert stats["Low"] == 2
+    assert stats["High"] == 1
+    assert stats["Medium"] == 0
+    assert stats["Critical"] == 0
+
+
+def test_tc022_analytics_overdue_chip_fires(app_window, qtbot):
+    """[EP02] TC-022: A task with a past due date increments the overdue counter."""
+    from datetime import datetime
+
+    from PySide6.QtCore import QDate
+
+    dashboard = app_window.dashboard
+
+    past_date = QDate.currentDate().addDays(-3).toString("yyyy-MM-dd")
+    dashboard.task_manager.add_task(
+        Task(
+            id=None,
+            title="Overdue Task",
+            description="",
+            status="Pending",
+            created_at=datetime.now(),
+            due_date=past_date,
+            priority="High",
+            is_deleted=0,
+        )
+    )
+
+    stats = dashboard.task_manager.get_task_stats()
+    assert stats["overdue"] == 1
+
+    # Refresh the widget and verify the overdue chip renders the warning text
+    dashboard.analytics_widget.refresh(dashboard.task_manager)
+    overdue_container = dashboard.analytics_widget._overdue_container
+    widgets = [
+        overdue_container.layout().itemAt(i).widget()
+        for i in range(overdue_container.layout().count())
+        if overdue_container.layout().itemAt(i).widget() is not None
+    ]
+    chip = next(
+        (
+            w
+            for w in widgets
+            if getattr(w, "objectName", lambda: "")() == "overdue_chip"
+        ),
+        None,
+    )
+    assert chip is not None
+    assert "overdue" in chip.text()
+
+
+def test_tc023_analytics_refreshes_on_status_change(app_window, qtbot):
+    """[EP02] TC-023: Completing a task updates the analytics stats correctly."""
+    from datetime import datetime
+
+    dashboard = app_window.dashboard
+
+    task_id = dashboard.task_manager.add_task(
+        Task(
+            id=None,
+            title="In Progress Task",
+            description="",
+            status="In Progress",
+            created_at=datetime.now(),
+            due_date="",
+            priority="Medium",
+            is_deleted=0,
+        )
+    )
+
+    stats_before = dashboard.task_manager.get_task_stats()
+    assert stats_before["In Progress"] == 1
+    assert stats_before["Completed"] == 0
+
+    # Simulate user completing the task (e.g. via right-click context menu)
+    dashboard.task_manager.update_task_status(task_id, "Completed")
+    dashboard.load_tasks()  # triggers analytics_widget.refresh() internally
+
+    stats_after = dashboard.task_manager.get_task_stats()
+    assert stats_after["In Progress"] == 0
+    assert stats_after["Completed"] == 1
+
+
+def test_tc024_datetime_parsing(app_window):
+    """TC-024: Verify backwards compatibility for legacy date vs new datetime string parsing"""
+    from datetime import datetime
+
+    dashboard = app_window.dashboard
+
+    # 1. Insert Legacy Task (Date Only)
+    dashboard.task_manager.add_task(
+        Task(
+            id=0,
+            title="Legacy Task",
+            description="",
+            status="Pending",
+            created_at=datetime.now(),
+            due_date="2020-01-01",  # Very old date
+            priority="Low",
+            color="#FFFFFF",
+            is_deleted=0,
+        )
+    )
+
+    # 2. Insert New Task (Full Datetime)
+    dashboard.task_manager.add_task(
+        Task(
+            id=0,
+            title="New Task",
+            description="",
+            status="Pending",
+            created_at=datetime.now(),
+            due_date="2020-01-01T14:30:00",  # Full datetime
+            priority="Low",
+            color="#FFFFFF",
+            is_deleted=0,
+        )
+    )
+
+    # This should safely parse both without throwing ValueError and accurately calculate overdue
+    stats = dashboard.task_manager.get_task_stats()
+
+    # Both tasks are from 2020, so they should both be counted as overdue
+    assert stats["overdue"] == 2
+    assert stats["total"] == 2
+
+
+def test_tc025_task_sorting_logic(app_window):
+    """TC-025: Verify TaskSorter logic for Priority and Date"""
+    from datetime import datetime
+
+    from data.models import Task
+    from utils.sorter import TaskSorter
+
+    tasks = [
+        Task(
+            id=1,
+            title="Later",
+            description="",
+            due_date="2026-12-31",
+            priority="Low",
+            status="Pending",
+            created_at=datetime.now(),
+        ),
+        Task(
+            id=2,
+            title="Sooner",
+            description="",
+            due_date="2026-01-01",
+            priority="High",
+            status="Pending",
+            created_at=datetime.now(),
+        ),
+    ]
+
+    # Sort by Date
+    sorted_date = TaskSorter.sort(tasks, "Due Date")
+    assert sorted_date[0].title == "Sooner"
+
+    # Sort by Priority (High is mapped to lower numerical value in PRIORITY_MAP)
+    sorted_prio = TaskSorter.sort(tasks, "Priority")
+    assert sorted_prio[0].title == "Sooner"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FT01: Task Labeling System
+# TC-026 → TC-030
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_tc026_tag_crud_management(app_window, qtbot, monkeypatch):
+    """[FT01] TC-026: Verify Tag Creation, Editing, and Deletion in Tags Management."""
+    dashboard = app_window.dashboard
+
+    # Navigate to Manage Tags
+    dashboard.set_mode("tags")
+    assert dashboard.current_mode == "tags"
+    tags_widget = dashboard.page_tags
+
+    # 1. Create a Tag
+    tags_widget.name_input.setText("Work")
+    # Select the first color button (Ocean Peach #6579BE)
+    qtbot.mouseClick(tags_widget.color_buttons[0], Qt.LeftButton)
+    qtbot.mouseClick(tags_widget.save_btn, Qt.LeftButton)
+
+    # Verify Tag exists in DB
+    all_tags = dashboard.task_manager.get_all_tags()
+    work_tag = next((t for t in all_tags if t.name == "Work"), None)
+    assert work_tag is not None
+    assert work_tag.color == "#6579BE"
+
+    # 2. Edit the Tag
+    tags_widget.tags_list.setCurrentRow(0)  # Select the tag we just created
+    tags_widget.name_input.setText("Office")
+    qtbot.mouseClick(
+        tags_widget.color_buttons[2], Qt.LeftButton
+    )  # Vibrant Orange #F54800
+    qtbot.mouseClick(tags_widget.save_btn, Qt.LeftButton)
+
+    all_tags = dashboard.task_manager.get_all_tags()
+    office_tag = next((t for t in all_tags if t.name == "Office"), None)
+    assert office_tag is not None
+    assert office_tag.color == "#F54800"
+    assert not any(t.name == "Work" for t in all_tags)
+
+    # 3. Delete the Tag
+    # Simulate the confirm dialog
+
+    monkeypatch.setattr(
+        QMessageBox,
+        "question",
+        lambda *args: QMessageBox.StandardButton.Yes,
+    )
+
+    # Ensure selection is processed
+    tags_widget.tags_list.item(0).setSelected(True)
+    qtbot.wait_until(
+        lambda: tags_widget.delete_btn.isVisible()
+        and tags_widget.delete_btn.isEnabled()
+    )
+
+    # Click the button
+    qtbot.mouseClick(tags_widget.delete_btn, Qt.LeftButton)
+
+    # Wait for the database to update
+    qtbot.wait_until(lambda: len(dashboard.task_manager.get_all_tags()) == 0)
+
+    assert len(dashboard.task_manager.get_all_tags()) == 0
+
+
+def test_tc027_task_tag_assignment_and_display(app_window):
+    """[FT01] TC-027: Verify assigning tags to a task and checking UI badges."""
+    dashboard = app_window.dashboard
+
+    # Setup: Create a tag and a task
+    dashboard.task_manager.add_tag(Tag(None, "Urgent", "#FF4D4D"))
+    task_id = dashboard.task_manager.add_task(
+        Task(
+            None,
+            "Tagged Task",
+            "Desc",
+            "Pending",
+            datetime.now(),
+            None,
+            "High",
+        )
+    )
+    dashboard.load_tasks()
+
+    # Find the task row in the tree
+    todo_group = dashboard.task_list_view.task_tree.topLevelItem(0)
+    task_row = todo_group.child(1)  # Index 1 is the task
+    tags_cell_widget = dashboard.task_list_view.task_tree.itemWidget(task_row, 2)
+    assert tags_cell_widget.findChild(QPushButton) is not None
+
+    # Mock the TagSelectMenu to simulate checking the tag
+
+    # We can't easily click inside the QMenu because it's a separate window in some OS
+    # Instead, we test the logic: _update_task_tags
+    urgent_tag = dashboard.task_manager.get_all_tags()[0]
+    dashboard.task_list_view._update_task_tags(
+        dashboard.task_manager.get_task_by_id(task_id), [urgent_tag]
+    )
+
+    # Verify DB update
+    updated_task = dashboard.task_manager.get_task_by_id(task_id)
+    assert len(updated_task.tags) == 1
+    assert updated_task.tags[0].name == "Urgent"
+
+    # Verify UI Badge
+    dashboard.load_tasks()
+    todo_group = dashboard.task_list_view.task_tree.topLevelItem(0)
+    task_row = todo_group.child(1)
+    tags_cell_widget = dashboard.task_list_view.task_tree.itemWidget(task_row, 2)
+    # The cell should now have a QLabel with "Urgent"
+    labels = tags_cell_widget.findChildren(QLabel)
+    assert any(lbl.text() == "Urgent" for lbl in labels)
+
+
+def test_tc028_tag_persistence_and_kanban(app_window):
+    """[FT01] TC-028: Verify tags persist and appear on Kanban cards."""
+    dashboard = app_window.dashboard
+
+    # Create tag and task with tag
+    tag = Tag(None, "Personal", "#9C27B0")
+    tag_id = dashboard.task_manager.add_tag(tag)
+    tag.id = tag_id
+
+    task = Task(
+        None,
+        "Kanban Tag Task",
+        "",
+        "Pending",
+        datetime.now(),
+        None,
+        "Low",
+        tags=[tag],
+    )
+    dashboard.task_manager.add_task(task)
+
+    # Switch to Kanban
+    dashboard.set_mode("kanban")
+    dashboard.load_tasks()
+
+    # Verify Kanban card has tag badge
+    todo_content = dashboard.kanban_board_view.todo_content
+    card = todo_content.itemAt(0).widget()
+    assert card.task.title == "Kanban Tag Task"
+
+    labels = card.findChildren(QLabel)
+    assert any(lbl.text() == "Personal" for lbl in labels)
+
+
+def test_tc029_tag_limit_enforcement(app_window):
+    """[FT01] TC-029: Verify that more than 5 tags are trimmed as per requirements."""
+    dashboard = app_window.dashboard
+
+    # Create 6 tags
+    tags = []
+    for i in range(6):
+        t_id = dashboard.task_manager.add_tag(Tag(None, f"Tag{i}", "#FFFFFF"))
+        tags.append(Tag(t_id, f"Tag{i}", "#FFFFFF"))
+
+    task = Task(None, "Limit Task", "", "Pending", datetime.now(), None, "Medium")
+    task_id = dashboard.task_manager.add_task(task)
+    task.id = task_id
+
+    # Try assigning 6 tags via the list view helper
+    dashboard.task_list_view._update_task_tags(task, tags)
+
+    # Verify only 5 were saved
+    final_task = dashboard.task_manager.get_task_by_id(task_id)
+    assert len(final_task.tags) == 5
+
+
+def test_tc030_tag_filtering_logic(app_window):
+    """[FT01] TC-030: Verify tag filtering isolates correct tasks."""
+    dashboard = app_window.dashboard
+
+    # Setup tags
+    tag_work = Tag(None, "Work", "#000000")
+    tag_work.id = dashboard.task_manager.add_tag(tag_work)
+    tag_home = Tag(None, "Home", "#000000")
+    tag_home.id = dashboard.task_manager.add_tag(tag_home)
+
+    # Setup tasks
+    dashboard.task_manager.add_task(
+        Task(None, "W1", "", "Pending", datetime.now(), None, "Medium", tags=[tag_work])
+    )
+    dashboard.task_manager.add_task(
+        Task(None, "H1", "", "Pending", datetime.now(), None, "Medium", tags=[tag_home])
+    )
+    dashboard.load_tasks()
+
+    # Initial state: 2 tasks (+1 header)
+    todo_group = dashboard.task_list_view.task_tree.topLevelItem(0)
+    assert todo_group.childCount() == 3
+
+    # Filter by "Work"
+    dashboard.handle_tag_filter_change(tag_work.id)
+
+    # Should only show W1 (+1 header)
+    todo_group = dashboard.task_list_view.task_tree.topLevelItem(0)
+    assert todo_group.childCount() == 2
+    assert (
+        "W1"
+        in dashboard.task_list_view.task_tree.itemWidget(todo_group.child(1), 0)
+        .findChild(QLabel)
+        .text()
+    )
+
+    # Clear filter
+    dashboard.handle_tag_filter_change(None)
+    todo_group = dashboard.task_list_view.task_tree.topLevelItem(0)
+    assert todo_group.childCount() == 3
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FT09: Task Image & PDF Attachments
+# TC-031 → TC-034
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_tc031_attachment_persistence(app_window):
+    """[FT09] TC-031: Verify that attachments are saved to the filesystem and DB."""
+    dashboard = app_window.dashboard
+
+    # Create a dummy image file
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+        tmp.write(b"fake image data")
+        tmp_path = tmp.name
+
+    try:
+        # Save attachment via manager
+        result = dashboard.task_manager.save_attachment(tmp_path)
+        assert result is not None
+        new_path, original_name = result
+
+        # Verify file exists in internal storage
+        assert os.path.exists(new_path)
+        assert ".efficio_attachments" in new_path
+
+        # Create task with this attachment
+        attachment = TaskAttachment(None, -1, new_path, original_name)
+        task = Task(
+            None,
+            "Attach Task",
+            "",
+            "Pending",
+            datetime.now(),
+            None,
+            "High",
+            attachments=[attachment],
+        )
+        task_id = dashboard.task_manager.add_task(task)
+
+        # Reload and verify
+        db_task = dashboard.task_manager.get_task_by_id(task_id)
+        assert len(db_task.attachments) == 1
+        assert db_task.attachments[0].file_name == os.path.basename(tmp_path)
+        assert os.path.exists(db_task.attachments[0].file_path)
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+
+def test_tc032_pdf_attachment_support(app_window):
+    """[FT09] TC-032: Verify PDF support in the attachment system."""
+    dashboard = app_window.dashboard
+
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+        tmp.write(b"%PDF-1.4 dummy pdf")
+        tmp_path = tmp.name
+
+    try:
+        result = dashboard.task_manager.save_attachment(tmp_path)
+        assert result is not None
+        new_path, _ = result
+        assert new_path.lower().endswith(".pdf")
+
+        attachment = TaskAttachment(None, -1, new_path, os.path.basename(tmp_path))
+        task = Task(
+            None,
+            "PDF Task",
+            "",
+            "Pending",
+            datetime.now(),
+            None,
+            "Medium",
+            attachments=[attachment],
+        )
+        task_id = dashboard.task_manager.add_task(task)
+
+        db_task = dashboard.task_manager.get_task_by_id(task_id)
+        assert db_task.attachments[0].file_path.endswith(".pdf")
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+
+def test_tc033_attachment_cleanup_on_delete(app_window, monkeypatch):
+    """[FT09] TC-033: Verify physical files are deleted on permanent task removal."""
+    dashboard = app_window.dashboard
+
+    # Setup task with attachment
+    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+        tmp.write(b"data")
+        tmp_path = tmp.name
+
+    result = dashboard.task_manager.save_attachment(tmp_path)
+    new_path, _ = result
+
+    attachment = TaskAttachment(None, -1, new_path, "test.jpg")
+    task = Task(
+        None,
+        "Delete Me",
+        "",
+        "Pending",
+        datetime.now(),
+        None,
+        "Low",
+        attachments=[attachment],
+    )
+    task_id = dashboard.task_manager.add_task(task)
+
+    assert os.path.exists(new_path)
+
+    # Soft delete
+    dashboard.task_manager.delete_task(task_id)
+    assert os.path.exists(new_path)  # Should still exist in trash
+
+    # Permanent delete
+    monkeypatch.setattr(
+        QMessageBox, "warning", lambda *args: QMessageBox.StandardButton.Yes
+    )
+    dashboard.task_manager.permanently_delete_task(task_id)
+
+    # Verify file is GONE from disk
+    assert not os.path.exists(new_path)
+
+
+def test_tc034_kanban_attachment_carousel_render(app_window):
+    """[FT09] TC-034: Verify Kanban card renders the attachment carousel."""
+    dashboard = app_window.dashboard
+
+    # Create task with 2 attachments
+    attachments = []
+    for i in range(2):
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+            tmp.write(b"img")
+            p = tmp.name
+        res = dashboard.task_manager.save_attachment(p)
+        attachments.append(TaskAttachment(None, -1, res[0], res[1]))
+        os.remove(p)
+
+    task = Task(
+        None,
+        "Carousel Task",
+        "",
+        "Pending",
+        datetime.now(),
+        None,
+        "High",
+        attachments=attachments,
+    )
+    dashboard.task_manager.add_task(task)
+
+    # Switch to Kanban
+    dashboard.set_mode("kanban")
+    dashboard.load_tasks()
+
+    # Find card
+    todo_content = dashboard.kanban_board_view.todo_content
+    card = todo_content.itemAt(0).widget()
+
+    # Check for QScrollArea (carousel)
+    from PySide6.QtWidgets import QScrollArea
+
+    carousels = card.findChildren(QScrollArea)
+    assert len(carousels) == 1
+
+    # Verify it has 2 thumbnails (QLabels in the scroll area's widget)
+    thumbs = carousels[0].widget().findChildren(QLabel)
+    # Verify it has 2 thumbnails (QLabels in the scroll area's widget)
+    thumbs = carousels[0].widget().findChildren(QLabel)
+    # Note: carousel_layout might have an extra stretch, but widgets should be 2
+    assert len(thumbs) == 2
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FT07: Task Activity Log History
+# TC-035 → TC-040
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_tc035_log_creation_on_add(app_window):
+    """[FT07] TC-035: Adding a task must trigger a 'Created' log entry."""
+    tm = app_window.dashboard.task_manager
+    t = Task(None, "Log Test", "", "Pending", datetime.now(), None, "Low")
+    tm.add_task(t)
+
+    logs = tm.get_activity_logs()
+    assert len(logs) >= 1
+    assert logs[0].action == "Created"
+    assert logs[0].task_title == "Log Test"
+
+
+def test_tc036_log_edit_with_field_diff(app_window):
+    """[FT07] TC-036: Editing a task logs field-level differences (Phase 1)."""
+    tm = app_window.dashboard.task_manager
+    t = Task(None, "Original Title", "Old Desc", "Pending", datetime.now(), None, "Low")
+    tid = tm.add_task(t)
+
+    # Modify multiple fields
+    t.id = tid
+    t.title = "New Title"
+    t.priority = "Critical"
+    tm.update_task(t)
+
+    logs = tm.get_activity_logs()
+    # logs[0] is Edited, logs[1] is Created
+    assert logs[0].action == "Edited"
+    assert "Title: 'Original Title' -> 'New Title'" in logs[0].details
+    assert "Priority: Low -> Critical" in logs[0].details
+
+
+def test_tc037_log_status_change(app_window):
+    """[FT07] TC-037: Changing status logs the transition."""
+    tm = app_window.dashboard.task_manager
+    tid = tm.add_task(
+        Task(None, "Status Task", "", "Pending", datetime.now(), None, "Low")
+    )
+
+    tm.update_task_status(tid, "Completed")
+    logs = tm.get_activity_logs()
+    assert logs[0].action == "Status Changed"
+    assert "Status changed from 'Pending' to 'Completed'" in logs[0].details
+
+
+def test_tc038_revert_status_change(app_window):
+    """[FT07] TC-038: Reverting a status change restores the task to its previous lane (Phase 3)."""
+    tm = app_window.dashboard.task_manager
+    tid = tm.add_task(
+        Task(None, "Revert Status", "", "Pending", datetime.now(), None, "Low")
+    )
+
+    tm.update_task_status(tid, "Completed")
+    logs = tm.get_activity_logs()
+    assert tm.get_task_by_id(tid).status == "Completed"
+
+    # Execute Revert
+    success = tm.revert_from_log(logs[0])
+    assert success is True
+    assert tm.get_task_by_id(tid).status == "Pending"
+
+    # Check that a 'Reverted' log was added
+    new_logs = tm.get_activity_logs()
+    assert new_logs[0].action == "Reverted"
+
+
+def test_tc039_revert_task_edit(app_window):
+    """[FT07] TC-039: Reverting an edit restores all previous task fields."""
+    tm = app_window.dashboard.task_manager
+    t = Task(None, "Before", "Old Description", "Pending", datetime.now(), None, "Low")
+    tid = tm.add_task(t)
+
+    t.id = tid
+    t.title = "After"
+    t.description = "New Description"
+    tm.update_task(t)
+
+    logs = tm.get_activity_logs()
+    success = tm.revert_from_log(logs[0])
+    assert success is True
+
+    reverted_task = tm.get_task_by_id(tid)
+    assert reverted_task.title == "Before"
+    assert reverted_task.description == "Old Description"
+
+
+def test_tc040_heatmap_data_retrieval(app_window):
+    """[FT07] TC-040: heatmap data retrieval returns counts for active days."""
+    tm = app_window.dashboard.task_manager
+    today_str = datetime.now().strftime("%Y-%m-%d")
+
+    # Add a task to generate activity
+    tm.add_task(Task(None, "Heatmap Task", "", "Pending", datetime.now(), None, "Low"))
+
+    counts = tm.get_activity_counts()
+    assert today_str in counts
+    assert counts[today_str] >= 1
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FT08: Sidebar Navigation Icons
+# TC-041 → TC-043
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_tc041_sidebar_icons_present(app_window):
+    """[FT08] TC-041: Verify each sidebar button has a valid icon."""
+    dash = app_window.dashboard
+    assert len(dash.sidebar_options) == 6  # Updated for FT05 (Archive added)
+
+    for btn, text in dash.sidebar_options:
+        icon = btn.icon()
+        assert not icon.isNull(), f"Icon for {text} should not be null"
+
+
+def test_tc042_sidebar_tooltips_on_collapse(app_window):
+    """[FT08] TC-042: Verify tooltips appear when collapsed and vanish when expanded."""
+    dash = app_window.dashboard
+
+    # Start: Expanded (usually false by default in init, but let's check current state)
+    if not dash.sidebar_expanded:
+        dash.toggle_sidebar()  # Expand it
+
+    # In expanded mode, tooltips should be empty
+    for btn, text in dash.sidebar_options:
+        assert btn.toolTip() == ""
+
+    # Collapse it
+    dash.toggle_sidebar()
+    assert dash.sidebar_expanded is False
+
+    # In collapsed mode, tooltips should match button text
+    for btn, text in dash.sidebar_options:
+        assert btn.toolTip() == text
+
+
+def test_tc043_sidebar_icon_persistence(app_window):
+    """[FT08] TC-043: Verify icons remain visible and set during toggle."""
+    dash = app_window.dashboard
+
+    # Toggle multiple times
+    for _ in range(4):
+        dash.toggle_sidebar()
+        for btn, text in dash.sidebar_options:
+            assert not btn.icon().isNull()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FT05: Task Archive & Auto-Cleanup Lifecycle
+# TC-044 → TC-049
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_tc044_manual_archive(app_window):
+    """[FT05] TC-044: Manual archiving hides task from main list."""
+    tm = app_window.dashboard.task_manager
+    tid = tm.add_task(
+        Task(None, "Archive Me", "", "Pending", datetime.now(), None, "Low")
+    )
+
+    tm.archive_task(tid)
+    tasks = tm.get_all_tasks()
+    assert not any(t.id == tid for t in tasks)
+
+
+def test_tc045_archive_retrieval(app_window):
+    """[FT05] TC-045: Archived tasks appear in get_archived_tasks()."""
+    tm = app_window.dashboard.task_manager
+    tid = tm.add_task(
+        Task(None, "In Archive", "", "Pending", datetime.now(), None, "Low")
+    )
+    tm.archive_task(tid)
+
+    archived = tm.get_archived_tasks()
+    assert any(t.id == tid for t in archived)
+
+
+def test_tc046_restore_from_archive(app_window):
+    """[FT05] TC-046: Restoring from archive brings task back to active list."""
+    tm = app_window.dashboard.task_manager
+    tid = tm.add_task(
+        Task(None, "Restore Me", "", "Pending", datetime.now(), None, "Low")
+    )
+    tm.archive_task(tid)
+    tm.restore_from_archive(tid)
+
+    tasks = tm.get_all_tasks()
+    assert any(t.id == tid for t in tasks)
+    archived = tm.get_archived_tasks()
+    assert not any(t.id == tid for t in archived)
+
+
+def test_tc047_auto_archive_completed_tasks(app_window):
+    """[FT05] TC-047: Completed tasks > 3 days old are auto-archived."""
+    from datetime import timedelta
+
+    tm = app_window.dashboard.task_manager
+    old_date = datetime.now() - timedelta(days=4)
+
+    # Manually insert via handler to force old creation date
+    cur = tm._data_handler._conn.cursor()
+    cur.execute(
+        "INSERT INTO tasks (title, status, created_at) VALUES ('Old Done', 'Completed', ?)",
+        (old_date.isoformat(),),
+    )
+    tm._data_handler._conn.commit()
+    tid = cur.lastrowid
+
+    tm.run_auto_cleanup()
+    archived = tm.get_archived_tasks()
+    assert any(t.id == tid for t in archived)
+
+
+def test_tc048_auto_trash_archived_tasks(app_window):
+    """[FT05] TC-048: Archived tasks > 14 days old are auto-trashed (soft delete)."""
+    from datetime import timedelta
+
+    tm = app_window.dashboard.task_manager
+    old_date = datetime.now() - timedelta(days=15)
+
+    cur = tm._data_handler._conn.cursor()
+    cur.execute(
+        "INSERT INTO tasks (title, status, created_at, is_archived, archived_at) VALUES ('Old Archive', 'Pending', ?, 1, ?)",
+        (old_date.isoformat(), old_date.isoformat()),
+    )
+    tm._data_handler._conn.commit()
+    tid = cur.lastrowid
+
+    tm.run_auto_cleanup()
+    trashed = tm._data_handler.get_deleted_tasks()
+    assert any(t.id == tid for t in trashed)
+    archived = tm.get_archived_tasks()
+    assert not any(t.id == tid for t in archived)
+
+
+def test_tc049_auto_delete_trash_tasks(app_window):
+    """[FT05] TC-049: Trash tasks > 14 days old are permanently deleted."""
+    from datetime import timedelta
+
+    tm = app_window.dashboard.task_manager
+    old_date = datetime.now() - timedelta(days=15)
+
+    cur = tm._data_handler._conn.cursor()
+    cur.execute(
+        "INSERT INTO tasks (title, status, created_at, is_deleted, deleted_at) VALUES ('Old Trash', 'Pending', ?, 1, ?)",
+        (old_date.isoformat(), old_date.isoformat()),
+    )
+    tm._data_handler._conn.commit()
+    tid = cur.lastrowid
+
+    tm.run_auto_cleanup()
+    trashed = tm._data_handler.get_deleted_tasks()
+    assert not any(t.id == tid for t in trashed)

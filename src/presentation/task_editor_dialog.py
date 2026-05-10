@@ -1,77 +1,208 @@
-from PySide6.QtCore import QDate, QEasingCurve, QPoint, QPropertyAnimation, Qt, QTimer
-from PySide6.QtGui import QColor
+import os
+from PySide6.QtCore import (
+    QDate,
+    QDateTime,
+    QEasingCurve,
+    QPoint,
+    QPropertyAnimation,
+    Qt,
+    QTime,
+    QTimer,
+)
+from PySide6.QtGui import QColor, QPixmap
 from PySide6.QtWidgets import (
     QComboBox,
     QDateEdit,
     QDialog,
-    QDialogButtonBox,
     QGraphicsDropShadowEffect,
+    QGridLayout,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
+    QPushButton,
     QTextEdit,
     QVBoxLayout,
+    QWidget,
+    QSizePolicy,
+    QScrollArea,
+    QFrame,
+    QFileDialog,
 )
+from data.models import TaskAttachment
+from presentation.components.tag_select_menu import TagSelectMenu
+
+_DIALOG_STYLE = """
+    QDialog {
+        background-color: #1E2328;
+    }
+    QLabel {
+        color: #FFFFFF;
+        font-weight: bold;
+        font-size: 13px;
+    }
+    QLineEdit, QTextEdit, QDateEdit, QComboBox {
+        background-color: rgba(255, 255, 255, 0.05);
+        color: white;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 6px;
+        padding: 8px 12px;
+        font-size: 14px;
+    }
+    QLineEdit:focus, QTextEdit:focus, QDateEdit:focus, QComboBox:focus {
+        border: 1px solid #6579BE;
+        background-color: rgba(255, 255, 255, 0.08);
+    }
+    QLineEdit:hover, QTextEdit:hover, QDateEdit:hover, QComboBox:hover {
+        background-color: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+    /* Disable calendar popup weird styling */
+    QCalendarWidget QWidget {
+        alternate-background-color: #2F3239;
+    }
+"""
 
 
 class TaskEditorDialog(QDialog):
     def __init__(self, parent=None, task=None):
         super().__init__(parent)
-        self.setWindowTitle("Edit Task" if task else "Add New Task")
-        self.setMinimumWidth(400)
+        self.setWindowTitle("Edit Task" if task else "Create New Task")
+
+        # ISO 25010 Usability: Enable Min/Max for better accessibility on various screen sizes
+        self.setWindowFlags(
+            Qt.WindowType.Window
+            | Qt.WindowType.WindowMinMaxButtonsHint
+            | Qt.WindowType.WindowCloseButtonHint
+        )
+
+        self.setMinimumWidth(500)
+        self.setStyleSheet(_DIALOG_STYLE)
         self.task = task
 
-        layout = QVBoxLayout(self)
+        # Main Layout for the Dialog
+        self.main_layout = QVBoxLayout(self)
+        self.main_layout.setSpacing(0)
+        self.main_layout.setContentsMargins(0, 0, 0, 0)
+
+        # 1. Fixed Header
+        header_widget = QWidget()
+        header_layout = QVBoxLayout(header_widget)
+        header_layout.setContentsMargins(25, 25, 25, 10)
+        header_lbl = QLabel("✏️ Edit Task" if task else "✨ Create New Task")
+        header_lbl.setStyleSheet("font-size: 22px; font-weight: bold; color: white;")
+        header_layout.addWidget(header_lbl)
+        self.main_layout.addWidget(header_widget)
+
+        # 2. Scrollable Content Area
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+        self.scroll_area.setStyleSheet("background-color: transparent;")
+
+        self.content_widget = QWidget()
+        self.content_widget.setStyleSheet("background-color: transparent;")
+        self.content_layout = QVBoxLayout(self.content_widget)
+        self.content_layout.setSpacing(15)
+        self.content_layout.setContentsMargins(25, 0, 25, 10)
 
         # Initialize floating toast (does not get added to layout)
         self.toast = ToastNotification(self)
 
-        # Title
-        layout.addWidget(QLabel("Title (Required):"))
+        # 2.1 Main Inputs (Title & Description)
+        self.content_layout.addWidget(QLabel("Task Title (Required)"))
         self.title_input = QLineEdit()
+        self.title_input.setPlaceholderText("e.g. Prepare Q3 Marketing Report")
         if task:
             self.title_input.setText(task.title)
-        layout.addWidget(self.title_input)
+        self.content_layout.addWidget(self.title_input)
 
-        # Description
-        layout.addWidget(QLabel("Description:"))
+        self.content_layout.addWidget(QLabel("Task Description"))
         self.desc_input = QTextEdit()
-        self.desc_input.setMaximumHeight(100)
+        self.desc_input.setPlaceholderText("Add any relevant context or notes here...")
+        self.desc_input.setMaximumHeight(80)
         if task:
             self.desc_input.setText(task.description or "")
-        layout.addWidget(self.desc_input)
+        self.content_layout.addWidget(self.desc_input)
 
-        # Due Date
-        layout.addWidget(QLabel("Due Date:"))
+        # 3. Metadata Grid (2x2)
+        grid = QGridLayout()
+        grid.setSpacing(15)
+
+        # Row 0, Col 0: Due Date & Time
+        grid.addWidget(QLabel("Due Date & Time"), 0, 0)
+
+        datetime_layout = QHBoxLayout()
+        datetime_layout.setSpacing(5)
+
         self.date_input = QDateEdit()
+        self.date_input.setCalendarPopup(True)
+
+        self.time_input = QComboBox()
+        # Generate 30-minute intervals
+        times = []
+        for h in range(24):
+            for m in (0, 30):
+                qtime = QTime(h, m)
+                times.append(qtime.toString("hh:mm AP"))
+        self.time_input.addItems(times)
+
         if task and task.due_date:
             due_str = str(task.due_date).strip()
             if due_str:
-                parsed = QDate.fromString(due_str, Qt.DateFormat.ISODate)
-                if parsed.isValid():
-                    self.date_input.setDate(parsed)
+                parsed_dt = QDateTime.fromString(due_str, Qt.DateFormat.ISODate)
+                if parsed_dt.isValid():
+                    self.date_input.setDate(parsed_dt.date())
+                    # Snap to nearest 30 mins or just match exact if exists
+                    time_str = parsed_dt.time().toString("hh:mm AP")
+                    idx = self.time_input.findText(time_str)
+                    if idx >= 0:
+                        self.time_input.setCurrentIndex(idx)
+                    else:
+                        # If weird time, just append it
+                        self.time_input.addItem(time_str)
+                        self.time_input.setCurrentIndex(self.time_input.count() - 1)
                 else:
-                    self.date_input.setDate(QDate.currentDate())
+                    parsed_d = QDate.fromString(due_str, Qt.DateFormat.ISODate)
+                    if parsed_d.isValid():
+                        self.date_input.setDate(parsed_d)
+                        self.time_input.setCurrentText("11:30 PM")
+                    else:
+                        self.date_input.setDate(QDate.currentDate())
+                        self.time_input.setCurrentText("11:30 PM")
             else:
                 self.date_input.setDate(QDate.currentDate())
+                self.time_input.setCurrentText("11:30 PM")
         else:
             self.date_input.setDate(QDate.currentDate())
-        self.date_input.setCalendarPopup(True)
-        layout.addWidget(self.date_input)
+            self.time_input.setCurrentText("11:30 PM")
 
-        # Priority
-        layout.addWidget(QLabel("Priority:"))
+        datetime_layout.addWidget(self.date_input, stretch=2)
+        datetime_layout.addWidget(self.time_input, stretch=1)
+        grid.addLayout(datetime_layout, 1, 0)
+
+        # Row 0, Col 1: Priority
+        grid.addWidget(QLabel("Priority"), 0, 1)
         self.priority_input = QComboBox()
         self.priority_input.addItems(["Low", "Medium", "High", "Critical"])
         if task and task.priority:
             index = self.priority_input.findText(task.priority)
             if index >= 0:
                 self.priority_input.setCurrentIndex(index)
-        layout.addWidget(self.priority_input)
+        grid.addWidget(self.priority_input, 1, 1)
 
-        # Color
-        layout.addWidget(QLabel("Task Color:"))
+        # Row 2, Col 0: Status
+        grid.addWidget(QLabel("Status"), 2, 0)
+        self.status_input = QComboBox()
+        self.status_input.addItems(["Pending", "In Progress", "Completed"])
+        if task and hasattr(task, "status"):
+            index = self.status_input.findText(task.status)
+            if index >= 0:
+                self.status_input.setCurrentIndex(index)
+        grid.addWidget(self.status_input, 3, 0)
+
+        # Row 2, Col 1: Color Theme
+        grid.addWidget(QLabel("Theme Color"), 2, 1)
         self.color_combo = QComboBox()
-        # Original Soft Themes
         self.color_combo.addItem("🌊 Ocean Peach", "#6579BE")
         self.color_combo.addItem("🏜️ Warm Sand", "#E9DFD8")
         self.color_combo.addItem("🔥 Vibrant Orange", "#F54800")
@@ -81,12 +212,8 @@ class TaskEditorDialog(QDialog):
         self.color_combo.addItem("🐋 Deep Ocean", "#19485F")
         self.color_combo.addItem("🌲 Forest Pink", "#285B23")
         self.color_combo.addItem("🥀 Dusty Rose", "#92736C")
-
-        # New High-Contrast & Solid Themes
         self.color_combo.addItem("🌑 Pitch Black (White Text)", "#000000")
         self.color_combo.addItem("🌕 Pure White (Black Text)", "#FFFFFF")
-
-        # We use slight micro-shades of White/Black to keep Python Dictionaries happy
         self.color_combo.addItem("🌫️ Frost White (Gray Text)", "#FFFFFE")
         self.color_combo.addItem("☁️ Light Gray (White Text)", "#DDDDDD")
         self.color_combo.addItem("🥶 Ice White (Blue Text)", "#FFFFFD")
@@ -97,15 +224,344 @@ class TaskEditorDialog(QDialog):
             index = self.color_combo.findData(task.color)
             if index >= 0:
                 self.color_combo.setCurrentIndex(index)
-        layout.addWidget(self.color_combo)
+        grid.addWidget(self.color_combo, 3, 1)
 
-        # Buttons
-        self.button_box = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        self.content_layout.addLayout(grid)
+        self.content_layout.addSpacing(10)
+
+        # 3.5 Tags Section
+        self.content_layout.addWidget(QLabel("Tags (Select up to 5)"))
+
+        # Tags control row (Button)
+        self.tags_control_layout = QHBoxLayout()
+        self.tags_select_btn = QPushButton("🏷️ Select Tags")
+        self.tags_select_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.tags_select_btn.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(255,255,255,0.1); color: white; border-radius: 6px; padding: 6px 12px; border: 1px solid rgba(255,255,255,0.2); font-weight: bold;
+            }
+            QPushButton:hover { background-color: rgba(255,255,255,0.15); border: 1px solid #6579BE; }
+        """)
+        self.tags_select_btn.clicked.connect(self._show_tag_menu)
+        self.tags_control_layout.addWidget(self.tags_select_btn)
+        self.tags_control_layout.addStretch()
+        self.content_layout.addLayout(self.tags_control_layout)
+
+        # Tags display container
+        self.tags_container = QWidget()
+        self.tags_container.setSizePolicy(
+            QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.MinimumExpanding
         )
-        self.button_box.accepted.connect(self.validate_and_accept)
-        self.button_box.rejected.connect(self.reject)
-        layout.addWidget(self.button_box)
+        self.tags_container.setMinimumHeight(40)
+        self.tags_layout = QHBoxLayout(self.tags_container)
+        self.tags_layout.setContentsMargins(0, 0, 0, 0)
+        self.tags_layout.setSpacing(8)
+        self.tags_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.content_layout.addWidget(self.tags_container)
+
+        self.selected_tags = []
+        if task and hasattr(task, "tags") and task.tags:
+            self.selected_tags = list(task.tags)
+
+        self._render_selected_tags()
+
+        self.content_layout.addSpacing(10)
+
+        # 3.6 Attachments Section
+        self.content_layout.addWidget(QLabel("Attachments (Optional, max 5)"))
+
+        self.attach_control_layout = QHBoxLayout()
+        self.attach_btn = QPushButton("📎 Add Images")
+        self.attach_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.attach_btn.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(255,255,255,0.1); color: white; border-radius: 6px; padding: 6px 12px; border: 1px solid rgba(255,255,255,0.2); font-weight: bold;
+            }
+            QPushButton:hover { background-color: rgba(255,255,255,0.15); border: 1 solid #6579BE; }
+        """)
+        self.attach_btn.clicked.connect(self._select_attachments)
+        self.attach_control_layout.addWidget(self.attach_btn)
+        self.attach_control_layout.addStretch()
+        self.content_layout.addLayout(self.attach_control_layout)
+
+        # Horizontal Scroll Area for thumbnails
+        self.attach_scroll = QScrollArea()
+        self.attach_scroll.setWidgetResizable(True)
+        self.attach_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.attach_scroll.setStyleSheet("background-color: transparent;")
+        self.attach_scroll.setFixedHeight(100)
+
+        self.attach_container = QWidget()
+        self.attach_layout = QHBoxLayout(self.attach_container)
+        self.attach_layout.setContentsMargins(0, 5, 0, 5)
+        self.attach_layout.setSpacing(10)
+        self.attach_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.attach_scroll.setWidget(self.attach_container)
+        self.content_layout.addWidget(self.attach_scroll)
+
+        self.scroll_area.setWidget(self.content_widget)
+        self.main_layout.addWidget(self.scroll_area)
+
+        self.attachments = []
+        if task and hasattr(task, "attachments") and task.attachments:
+            self.attachments = list(task.attachments)
+
+        self._render_attachments()
+
+        # Enable Drag & Drop
+        self.setAcceptDrops(True)
+
+        # 4. Action Footer (Save / Cancel)
+        footer_widget = QWidget()
+        btn_layout = QHBoxLayout(footer_widget)
+        btn_layout.setContentsMargins(25, 10, 25, 25)
+
+        # Phase 3.7: Show Creation Date (Audit Info)
+        if task and hasattr(task, "created_at") and task.created_at:
+            try:
+                from datetime import datetime as _dt
+
+                raw = task.created_at
+                if isinstance(raw, str):
+                    # Try formats in order, including microsecond variants
+                    for fmt in (
+                        "%Y-%m-%dT%H:%M:%S.%f",
+                        "%Y-%m-%d %H:%M:%S.%f",
+                        "%Y-%m-%dT%H:%M:%S",
+                        "%Y-%m-%d %H:%M:%S",
+                        "%Y-%m-%d",
+                    ):
+                        try:
+                            raw = _dt.strptime(raw, fmt)
+                            break
+                        except ValueError:
+                            continue
+                created_str = (
+                    raw.strftime("%b %d, %Y — %I:%M %p")
+                    if hasattr(raw, "strftime")
+                    else str(raw)
+                )
+            except Exception:
+                created_str = str(task.created_at)
+            created_lbl = QLabel(f"Created: {created_str}")
+            created_lbl.setStyleSheet(
+                "color: #606060; font-size: 11px; font-weight: normal;"
+            )
+            btn_layout.addWidget(created_lbl)
+
+        btn_layout.addStretch()
+
+        self.cancel_btn = QPushButton("Cancel")
+        self.cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.cancel_btn.setStyleSheet("""
+            QPushButton {
+                background-color: transparent;
+                color: #A0A0A0; font-weight: bold; padding: 10px 20px; border-radius: 6px;
+            }
+            QPushButton:hover { background-color: rgba(255, 255, 255, 0.05); color: white; }
+        """)
+        self.cancel_btn.clicked.connect(self.reject)
+
+        self.save_btn = QPushButton("Save Task")
+        self.save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.save_btn.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(40, 91, 35, 0.85);
+                color: white; font-weight: bold; padding: 10px 24px; border-radius: 6px;
+            }
+            QPushButton:hover { background-color: rgba(40, 91, 35, 1.0); }
+        """)
+        self.save_btn.clicked.connect(self.validate_and_accept)
+
+        btn_layout.addWidget(self.cancel_btn)
+        btn_layout.addWidget(self.save_btn)
+
+        self.main_layout.addWidget(footer_widget)
+
+    def _show_tag_menu(self):
+        parent_dash = self.parent()
+        all_tags = []
+        if hasattr(parent_dash, "task_manager"):
+            all_tags = parent_dash.task_manager.get_all_tags()
+
+        menu = TagSelectMenu(all_tags, self.selected_tags, self)
+        menu.tags_changed.connect(self._on_tags_changed)
+
+        # Show menu below the button
+        pos = self.tags_select_btn.mapToGlobal(QPoint(0, self.tags_select_btn.height()))
+        menu.exec(pos)
+
+    def _on_tags_changed(self, new_tags):
+        if len(new_tags) > 5:
+            self.toast.show_toast("Maximum 5 tags allowed! Only saving first 5.")
+            self.selected_tags = new_tags[:5]
+        else:
+            self.selected_tags = new_tags
+        self._render_selected_tags()
+
+    def _render_selected_tags(self):
+        # Clear existing
+        while self.tags_layout.count():
+            item = self.tags_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        for tag in self.selected_tags:
+            btn = QPushButton(tag.name)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+
+            # Smart Contrast for text
+            text_color = "#FFFFFF"
+            try:
+                hex_c = tag.color.lstrip("#")
+                r, g, b = int(hex_c[0:2], 16), int(hex_c[2:4], 16), int(hex_c[4:6], 16)
+                luma = 0.299 * r + 0.587 * g + 0.114 * b
+                text_color = "#000000" if luma > 160 else "#FFFFFF"
+            except Exception:
+                pass
+
+            btn.setStyleSheet(f"""
+                QPushButton {{ background-color: {tag.color}; color: {text_color}; border-radius: 4px; padding: 4px 10px; border: none; font-weight: bold; font-size: 11px; }}
+                QPushButton:hover {{ opacity: 0.8; }}
+            """)
+            btn.clicked.connect(lambda checked, t=tag: self._remove_tag(t))
+            self.tags_layout.addWidget(btn)
+
+        self.tags_layout.addStretch()
+
+    def _remove_tag(self, tag):
+        self.selected_tags = [t for t in self.selected_tags if t.id != tag.id]
+        self._render_selected_tags()
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+
+    def dropEvent(self, event):
+        urls = event.mimeData().urls()
+        files = [url.toLocalFile() for url in urls]
+        self._add_files(files)
+
+    def _select_attachments(self):
+        files, _ = QFileDialog.getOpenFileNames(
+            self, "Select Files", "", "Files (*.png *.jpg *.jpeg *.bmp *.gif *.pdf)"
+        )
+        if files:
+            self._add_files(files)
+
+    def _add_files(self, file_paths):
+        parent_dash = self.parent()
+        if not hasattr(parent_dash, "task_manager"):
+            return
+
+        SUPPORTED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".gif", ".pdf"}
+        for path in file_paths:
+            if len(self.attachments) >= 5:
+                self.toast.show_toast("Maximum 5 attachments allowed!")
+                break
+
+            ext = os.path.splitext(path)[1].lower()
+            if ext not in SUPPORTED_EXTENSIONS:
+                self.toast.show_toast(f"Unsupported type: {ext}")
+                continue
+
+            # Check size before sending to manager for better UI feedback
+            if os.path.getsize(path) > 10 * 1024 * 1024:
+                self.toast.show_toast(
+                    f"File too large (>10MB): {os.path.basename(path)}"
+                )
+                continue
+
+            # Save file via task manager
+            result = parent_dash.task_manager.save_attachment(path)
+            if result:
+                new_path, original_name = result
+                self.attachments.append(
+                    TaskAttachment(
+                        id=None,
+                        task_id=self.task.id if self.task else -1,
+                        file_path=new_path,
+                        file_name=original_name,
+                    )
+                )
+            else:
+                self.toast.show_toast(f"Failed to add image: {os.path.basename(path)}")
+
+        self._render_attachments()
+
+    def _render_attachments(self):
+        # Clear existing
+        while self.attach_layout.count():
+            item = self.attach_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        for att in self.attachments:
+            thumb_widget = QWidget()
+            thumb_widget.setFixedSize(80, 80)
+            thumb_widget.setStyleSheet("""
+                QWidget { background-color: rgba(255,255,255,0.05); border-radius: 6px; }
+            """)
+            thumb_layout = QVBoxLayout(thumb_widget)
+            thumb_layout.setContentsMargins(0, 0, 0, 0)
+
+            img_label = QLabel()
+            img_label.setFixedSize(80, 80)
+            img_label.setScaledContents(True)
+            if att.file_path.lower().endswith(".pdf"):
+                img_label.setText("PDF")
+                img_label.setStyleSheet("""
+                    QLabel {
+                        background-color: #EE2222; color: white; border-radius: 6px;
+                        font-weight: bold; font-size: 16px; border: 1px solid rgba(255,255,255,0.2);
+                    }
+                """)
+                img_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            else:
+                pixmap = QPixmap(att.file_path)
+                if not pixmap.isNull():
+                    img_label.setPixmap(
+                        pixmap.scaled(
+                            80, 80, Qt.AspectRatioMode.KeepAspectRatioByExpanding
+                        )
+                    )
+                else:
+                    img_label.setText("🖼️")
+                    img_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            thumb_layout.addWidget(img_label)
+
+            # Close button overlay
+            del_btn = QPushButton("✕", thumb_widget)
+            del_btn.setFixedSize(20, 20)
+            del_btn.move(60, 0)
+            del_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            del_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: rgba(0,0,0,0.6); color: white; border-radius: 10px; font-weight: bold; border: none;
+                }
+                QPushButton:hover { background-color: #F54800; }
+            """)
+            del_btn.clicked.connect(lambda checked, a=att: self._remove_attachment(a))
+
+            self.attach_layout.addWidget(thumb_widget)
+
+        self.attach_layout.addStretch()
+
+    def _remove_attachment(self, attachment):
+        self.attachments.remove(attachment)
+        # Note: We don't delete the physical file yet,
+        # in case the user cancels the dialog.
+        # Or we could, but then we'd have to manage undo.
+        # Requirement says "remove or replace", so this is fine for now.
+        self._render_attachments()
+
+    def _get_selected_datetime(self):
+        """Helper to combine the DateEdit and TimeComboBox into a single QDateTime"""
+        d = self.date_input.date()
+        t = QTime.fromString(self.time_input.currentText(), "hh:mm AP")
+        if not t.isValid():
+            t = QTime(23, 59, 59)
+        return QDateTime(d, t)
 
     def validate_and_accept(self):
         title = self.title_input.text().strip()
@@ -114,25 +570,42 @@ class TaskEditorDialog(QDialog):
             self.toast.show_toast("Title is required!")
             return
 
-        # --- PAST DUE DATE VALIDATION ---
-        selected_date = self.date_input.date()
-        current_date = QDate.currentDate()
+        # ISO 25010 Security & Data Integrity: Sync with TaskManager validation
+        if len(title) > 255:
+            self.toast.show_toast("Title is too long (max 255)!")
+            return
 
-        # Check if the currently selected date is in the past
-        if selected_date < current_date:
-            original_date = None
+        malicious_patterns = ["<script>", "javascript:", "onload="]
+        title_lower = title.lower()
+        desc_lower = self.desc_input.toPlainText().lower()
+        if any(p in title_lower or p in desc_lower for p in malicious_patterns):
+            self.toast.show_toast("Invalid characters detected!")
+            return
 
-            # Identify if we are editing an existing task, and if so, capture its original date
+        # --- PAST DUE DATETIME VALIDATION ---
+        selected_dt = self._get_selected_datetime()
+        current_dt = QDateTime.currentDateTime()
+
+        # Check if the currently selected datetime is in the past
+        if selected_dt < current_dt:
+            original_dt = None
+
+            # Identify if we are editing an existing task, and if so, capture its original datetime
             if self.task and self.task.due_date:
                 due_str = str(self.task.due_date).strip()
                 if due_str:
-                    parsed = QDate.fromString(due_str, Qt.DateFormat.ISODate)
-                    if parsed.isValid():
-                        original_date = parsed
+                    parsed_dt = QDateTime.fromString(due_str, Qt.DateFormat.ISODate)
+                    if parsed_dt.isValid():
+                        original_dt = parsed_dt
+                    else:
+                        # Legacy fallback parsing for comparison
+                        parsed_d = QDate.fromString(due_str, Qt.DateFormat.ISODate)
+                        if parsed_d.isValid():
+                            original_dt = QDateTime(parsed_d, QTime(23, 59, 59))
 
-            # If it's a NEW task, OR they changed the date to a NEW past date, block the save
-            if not original_date or selected_date != original_date:
-                self.toast.show_toast("Due Date cannot be in the past!")
+            # If it's a NEW task, OR they changed the datetime to a NEW past datetime, block the save
+            if not original_dt or selected_dt != original_dt:
+                self.toast.show_toast("Due Date/Time cannot be in the past!")
                 return
         # --------------------------------
 
@@ -143,10 +616,12 @@ class TaskEditorDialog(QDialog):
         return {
             "title": self.title_input.text().strip(),
             "description": self.desc_input.toPlainText().strip(),
-            "due_date": self.date_input.date().toString(Qt.DateFormat.ISODate),
+            "due_date": self._get_selected_datetime().toString(Qt.DateFormat.ISODate),
             "priority": self.priority_input.currentText(),
-            "status": self.task.status if self.task else "Pending",
-            "color": self.color_combo.currentData(),  # Extract the hidden Hex Code
+            "status": self.status_input.currentText(),
+            "color": self.color_combo.currentData(),
+            "tags": self.selected_tags,
+            "attachments": self.attachments,
         }
 
 
