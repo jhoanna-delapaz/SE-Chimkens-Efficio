@@ -58,7 +58,7 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-        pip install pytest-qt pytest-xvfb ruff
+        pip install pytest-qt pytest-xvfb ruff==0.4.4
 
     - name: Verify Qt Platform Plugin Dependencies
       run: |
@@ -75,8 +75,8 @@ jobs:
 
     - name: Enforce Code Quality (Ruff)
       run: |
-        ruff format --check .
-        ruff check .
+        python -m ruff format --check .
+        python -m ruff check .
 
     - name: Run Automated UI Tests
       env:
