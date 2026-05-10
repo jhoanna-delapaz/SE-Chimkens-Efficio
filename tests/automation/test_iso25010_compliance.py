@@ -124,6 +124,27 @@ def test_main002_string_centralization(app_window):
     assert dashboard.title_label.text() == UIStrings.NAV_KANBAN
 
 
+# ─── RELIABILITY (Maturity & Recoverability) ──────────────────────────────────
+
+
+def test_rel001_resource_cleanup_capability(app_window):
+    """ISO 25010 Reliability: Verify that the application can safely release database locks."""
+    # Ensure TaskManager has the close method required for safe shutdown
+    assert hasattr(app_window.dashboard.task_manager, "close")
+    # Call it to ensure it doesn't crash
+    app_window.dashboard.task_manager.close()
+
+
+# ─── USABILITY (User Interface & Experience) ──────────────────────────────────
+
+
+def test_usab001_urgency_logic_centralization():
+    """ISO 25010 Usability: Verify that urgency logic is centralized in TaskSorter."""
+    from utils.sorter import TaskSorter
+
+    assert hasattr(TaskSorter, "is_task_urgent")
+
+
 # ─── PORTABILITY (Adaptability) ─────────────────────────────────────────────
 
 
@@ -216,4 +237,33 @@ def test_evid_006_source_asset_portability():
     ), f"Compliance Violation: Hardcoded asset path found in {file_path}"
     print(
         f"\n[ISO 25010 EVIDENCE] Portability (Asset Path): Found in {os.path.basename(file_path)} at Line {line_no}"
+    )
+
+
+def test_evid_007_source_lifecycle_separation():
+    """ISO 25010 Evidence: Prove that Lifecycle rules are in Business layer, not Data layer."""
+    biz_file = os.path.join(src_dir, "business", "task_manager.py")
+    data_file = os.path.join(src_dir, "data", "database_handler.py")
+
+    with open(biz_file, "r", encoding="utf-8") as f:
+        biz_content = f.read()
+    with open(data_file, "r", encoding="utf-8") as f:
+        data_content = f.read()
+
+    # Evidence: Business layer calculates the timedelta
+    assert "timedelta(days=3)" in biz_content
+    # Evidence: Data layer receives the cutoff as a parameter
+    assert "def run_auto_cleanup(" in data_content
+    assert "archive_cutoff: str" in data_content
+
+
+def test_evid_008_source_ui_validation_sync():
+    """ISO 25010 Evidence: Prove that UI layer synchronizes validation with Business layer."""
+    file_path = os.path.join(src_dir, "presentation", "task_editor_dialog.py")
+    pattern = "if len(title) > 255:"
+
+    line_no = find_line_number(file_path, pattern)
+    assert line_no != -1, f"Compliance Violation: UI validation missing in {file_path}"
+    print(
+        f"\n[ISO 25010 EVIDENCE] Security (UI Sync): Found in {os.path.basename(file_path)} at Line {line_no}"
     )

@@ -67,37 +67,62 @@ class TaskEditorDialog(QDialog):
     def __init__(self, parent=None, task=None):
         super().__init__(parent)
         self.setWindowTitle("Edit Task" if task else "Create New Task")
+
+        # ISO 25010 Usability: Enable Min/Max for better accessibility on various screen sizes
+        self.setWindowFlags(
+            Qt.WindowType.Window
+            | Qt.WindowType.WindowMinMaxButtonsHint
+            | Qt.WindowType.WindowCloseButtonHint
+        )
+
         self.setMinimumWidth(500)
         self.setStyleSheet(_DIALOG_STYLE)
         self.task = task
 
-        layout = QVBoxLayout(self)
-        layout.setSpacing(15)
-        layout.setContentsMargins(25, 25, 25, 25)
+        # Main Layout for the Dialog
+        self.main_layout = QVBoxLayout(self)
+        self.main_layout.setSpacing(0)
+        self.main_layout.setContentsMargins(0, 0, 0, 0)
+
+        # 1. Fixed Header
+        header_widget = QWidget()
+        header_layout = QVBoxLayout(header_widget)
+        header_layout.setContentsMargins(25, 25, 25, 10)
+        header_lbl = QLabel("✏️ Edit Task" if task else "✨ Create New Task")
+        header_lbl.setStyleSheet("font-size: 22px; font-weight: bold; color: white;")
+        header_layout.addWidget(header_lbl)
+        self.main_layout.addWidget(header_widget)
+
+        # 2. Scrollable Content Area
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+        self.scroll_area.setStyleSheet("background-color: transparent;")
+
+        self.content_widget = QWidget()
+        self.content_widget.setStyleSheet("background-color: transparent;")
+        self.content_layout = QVBoxLayout(self.content_widget)
+        self.content_layout.setSpacing(15)
+        self.content_layout.setContentsMargins(25, 0, 25, 10)
 
         # Initialize floating toast (does not get added to layout)
         self.toast = ToastNotification(self)
 
-        # 1. Header
-        header_lbl = QLabel("✏️ Edit Task" if task else "✨ Create New Task")
-        header_lbl.setStyleSheet("font-size: 22px; font-weight: bold; color: white;")
-        layout.addWidget(header_lbl)
-
-        # 2. Main Inputs (Title & Description)
-        layout.addWidget(QLabel("Task Title (Required)"))
+        # 2.1 Main Inputs (Title & Description)
+        self.content_layout.addWidget(QLabel("Task Title (Required)"))
         self.title_input = QLineEdit()
         self.title_input.setPlaceholderText("e.g. Prepare Q3 Marketing Report")
         if task:
             self.title_input.setText(task.title)
-        layout.addWidget(self.title_input)
+        self.content_layout.addWidget(self.title_input)
 
-        layout.addWidget(QLabel("Task Description"))
+        self.content_layout.addWidget(QLabel("Task Description"))
         self.desc_input = QTextEdit()
         self.desc_input.setPlaceholderText("Add any relevant context or notes here...")
         self.desc_input.setMaximumHeight(80)
         if task:
             self.desc_input.setText(task.description or "")
-        layout.addWidget(self.desc_input)
+        self.content_layout.addWidget(self.desc_input)
 
         # 3. Metadata Grid (2x2)
         grid = QGridLayout()
@@ -201,11 +226,11 @@ class TaskEditorDialog(QDialog):
                 self.color_combo.setCurrentIndex(index)
         grid.addWidget(self.color_combo, 3, 1)
 
-        layout.addLayout(grid)
-        layout.addSpacing(10)
+        self.content_layout.addLayout(grid)
+        self.content_layout.addSpacing(10)
 
         # 3.5 Tags Section
-        layout.addWidget(QLabel("Tags (Select up to 5)"))
+        self.content_layout.addWidget(QLabel("Tags (Select up to 5)"))
 
         # Tags control row (Button)
         self.tags_control_layout = QHBoxLayout()
@@ -220,7 +245,7 @@ class TaskEditorDialog(QDialog):
         self.tags_select_btn.clicked.connect(self._show_tag_menu)
         self.tags_control_layout.addWidget(self.tags_select_btn)
         self.tags_control_layout.addStretch()
-        layout.addLayout(self.tags_control_layout)
+        self.content_layout.addLayout(self.tags_control_layout)
 
         # Tags display container
         self.tags_container = QWidget()
@@ -232,7 +257,7 @@ class TaskEditorDialog(QDialog):
         self.tags_layout.setContentsMargins(0, 0, 0, 0)
         self.tags_layout.setSpacing(8)
         self.tags_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        layout.addWidget(self.tags_container)
+        self.content_layout.addWidget(self.tags_container)
 
         self.selected_tags = []
         if task and hasattr(task, "tags") and task.tags:
@@ -240,10 +265,10 @@ class TaskEditorDialog(QDialog):
 
         self._render_selected_tags()
 
-        layout.addSpacing(10)
+        self.content_layout.addSpacing(10)
 
         # 3.6 Attachments Section
-        layout.addWidget(QLabel("Attachments (Optional, max 5)"))
+        self.content_layout.addWidget(QLabel("Attachments (Optional, max 5)"))
 
         self.attach_control_layout = QHBoxLayout()
         self.attach_btn = QPushButton("📎 Add Images")
@@ -252,12 +277,12 @@ class TaskEditorDialog(QDialog):
             QPushButton {
                 background-color: rgba(255,255,255,0.1); color: white; border-radius: 6px; padding: 6px 12px; border: 1px solid rgba(255,255,255,0.2); font-weight: bold;
             }
-            QPushButton:hover { background-color: rgba(255,255,255,0.15); border: 1px solid #6579BE; }
+            QPushButton:hover { background-color: rgba(255,255,255,0.15); border: 1 solid #6579BE; }
         """)
         self.attach_btn.clicked.connect(self._select_attachments)
         self.attach_control_layout.addWidget(self.attach_btn)
         self.attach_control_layout.addStretch()
-        layout.addLayout(self.attach_control_layout)
+        self.content_layout.addLayout(self.attach_control_layout)
 
         # Horizontal Scroll Area for thumbnails
         self.attach_scroll = QScrollArea()
@@ -272,7 +297,10 @@ class TaskEditorDialog(QDialog):
         self.attach_layout.setSpacing(10)
         self.attach_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
         self.attach_scroll.setWidget(self.attach_container)
-        layout.addWidget(self.attach_scroll)
+        self.content_layout.addWidget(self.attach_scroll)
+
+        self.scroll_area.setWidget(self.content_widget)
+        self.main_layout.addWidget(self.scroll_area)
 
         self.attachments = []
         if task and hasattr(task, "attachments") and task.attachments:
@@ -283,10 +311,10 @@ class TaskEditorDialog(QDialog):
         # Enable Drag & Drop
         self.setAcceptDrops(True)
 
-        layout.addSpacing(10)
-
         # 4. Action Footer (Save / Cancel)
-        btn_layout = QHBoxLayout()
+        footer_widget = QWidget()
+        btn_layout = QHBoxLayout(footer_widget)
+        btn_layout.setContentsMargins(25, 10, 25, 25)
 
         # Phase 3.7: Show Creation Date (Audit Info)
         if task and hasattr(task, "created_at") and task.created_at:
@@ -348,7 +376,7 @@ class TaskEditorDialog(QDialog):
         btn_layout.addWidget(self.cancel_btn)
         btn_layout.addWidget(self.save_btn)
 
-        layout.addLayout(btn_layout)
+        self.main_layout.addWidget(footer_widget)
 
     def _show_tag_menu(self):
         parent_dash = self.parent()

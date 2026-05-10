@@ -9,7 +9,7 @@ This document serves as the formal record of technical compliance for the Effici
 
 | Standard | Implementation | Location | Evidence / Example |
 | :--- | :--- | :--- | :--- |
-| **Input Sanitization** | Heuristic blocking of `<script>`, `javascript:`, and `onload` patterns in `TaskManager`. | `src/business/task_manager.py` | **Line 44**: `malicious_patterns = ["<script>", "javascript:", "onload="]` |
+| **Input Sanitization** | Heuristic blocking of `<script>`, `javascript:`, and `onload` patterns in both UI and Business layers. | `src/presentation/task_editor_dialog.py` | **Line 550**: `malicious_patterns = [...]` |
 | **SQLi Protection** | Use of parameter binding (tuples) for all SQLite queries to prevent injection. | `src/data/database_handler.py` | **Line 161**: `cur.execute(query, (f"%{search_query}%",))` |
 | **Exception Masking** | Centralized logging handles errors; internal schema details are masked from end-users. | `src/business/task_manager.py` | **Line 66**: `logger.error("Database Integrity Error (details masked)")` |
 
@@ -24,6 +24,7 @@ This document serves as the formal record of technical compliance for the Effici
 | **Modular UI Pattern** | Extraction of Dashboard into atomic widgets: `TaskListView`, `KanbanBoardView`, `TrashWidget`. | `src/presentation/components/` | **Structure**: Isolated classes for each visual entity. |
 | **Magic Number Removal** | Centralized UI measurements (pixel values) in `UIConstants`. | `src/utils/constants.py` | **Line 24**: `SIDEBAR_COLLAPSED_WIDTH = 60` |
 | **Centralized Strings** | UI labels and status text consolidated in `UIStrings` for easy auditing. | `src/utils/strings.py` | **Line 10**: `LABEL_TODO = "To-Do"` |
+| **Rule Centralization** | Business rules (like the 3-Stage Lifecycle) are defined in the Business layer, keeping the Data layer clean. | `src/business/task_manager.py` | **Line 105**: Calculation of `timedelta` for auto-cleanup. |
 
 ---
 
@@ -33,8 +34,9 @@ This document serves as the formal record of technical compliance for the Effici
 | Standard | Implementation | Location | Evidence / Example |
 | :--- | :--- | :--- | :--- |
 | **Aesthetics** | Modern Glassmorphism UI using `QGraphicsBlurEffect` and semi-transparent overlays. | `src/presentation/dashboard.py` | **Line 131**: Implementation of `QGraphicsBlurEffect`. |
-| **Urgency Indicators** | Dynamic visual cues (red borders and lines) for tasks due within 48 hours. | `KanbanCard.py` | **Line 63**: `border: 2px solid #FF4D4D;` for urgent cards. |
+| **Urgency Indicators** | Dynamic visual cues (red borders and lines) for tasks due within 48 hours or overdue. | `src/utils/sorter.py` | **Line 31**: Centralized `is_task_urgent` logic. |
 | **Self-Descriptiveness** | Automatic countdown tooltips showing exactly how many days/hours remain until a deadline. | `src/utils/sorter.py` | **Line 46**: `def format_due_countdown(...) -> str` |
+| **Responsiveness** | `TaskEditorDialog` uses `QScrollArea` and adaptive window flags for varying screen sizes. | `src/presentation/task_editor_dialog.py` | **Line 72**: Enable Min/Max buttons. |
 
 ---
 
@@ -59,10 +61,6 @@ This document serves as the formal record of technical compliance for the Effici
 ---
 
 ## 6. Verification Status
-*   **Total Verification Checks**: 34 Automated Tests (23 Functional + 11 Compliance).
-*   **Static Evidence Suite**: Verified via `tests/automation/test_iso25010_compliance.py`.
+*   **Verification Checks**: 73 Automated Tests (58 Functional + 15 Compliance).
+*   **Static Evidence**: Verified via `tests/automation/test_iso25010_compliance.py`.
 *   **Code Coverage**: All core Business and Data modules are covered by integrated unit and UI tests.
-
-**Final Assessment**: Enterprise-Ready / Production-Grade
-**Status**: VERIFIED
-**Date**: 2026-05-05
